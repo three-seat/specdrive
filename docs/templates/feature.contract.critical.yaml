@@ -1,0 +1,114 @@
+schema_version: 1
+
+metadata:
+  id: "F-XXX"
+  title: "<TITLE>"
+  status: "draft"
+  critical: true
+
+summary: |
+  TODO: 2-4 lines describing the feature and why it's critical.
+
+scope:
+  product: "specdrive"
+  service: "specdrive-cli"
+  repo: "specdrive"
+  area: "TODO: cli|spec|contract|git|ai|docs"
+
+requirements:
+  high_level: []
+  low_level: []
+
+assumptions:
+  - id: "A-001"
+    text: "Repo layout follows .specify/ and docs/ conventions."
+  - id: "A-002"
+    text: "Required tools are installed (git, specify)."
+
+preconditions:
+  - id: "P-001"
+    text: "Command is run from repo root."
+
+impact:
+  security:
+    confidentiality: "low" # low | medium | high
+    integrity: "low"
+    availability: "low"
+    rationale: "Explain the impact if this feature is wrong/abused."
+  privacy:
+    pii_involved: false
+    rationale: ""
+
+architecture:
+  related_docs:
+    - "docs/system-overview.md"
+  constraints:
+    - "No secrets written to disk."
+    - "No network calls unless explicitly required."
+
+cli:
+  command: ""
+  args: []
+  flags: []
+  description: ""
+  exit_codes:
+    - code: 0
+      meaning: "Success."
+    - code: 1
+      meaning: "Usage / precondition failure."
+    - code: 2
+      meaning: "Underlying tool or IO failure."
+
+behaviour:
+  steps: []
+
+logic:
+  invariants: []
+  error_conditions:
+    - code: ""
+      description: ""
+      effect: ""
+
+filesystem:
+  creates_paths: []
+  reads_paths: []
+  copies_templates:
+    - from: ""
+      to: ""
+  must_not_modify: []
+
+integrations:
+  tools:
+    - name: "git"
+      purpose: "Working tree checks / commands."
+    - name: "specify"
+      purpose: "Spec Kit scaffolding."
+
+git_safety:
+  require_clean_tree: true
+  allow_untracked: true
+  rationale: "Avoid AI or automation operating on a dirty tree."
+
+verification:
+  strategy: ["unit", "integration"]
+  test_cases: []
+  coverage_expectations:
+    code: "statement"
+    notes: "Hit key branches, especially failure paths."
+
+reviews:
+  required: true
+  checklist:
+    - "Spec and contract agree."
+    - "Threat/impact notes make sense."
+    - "Invariants are enforced in code and tests."
+  status:
+    reviewed_by: ""
+    reviewed_at: ""
+
+ai_instructions:
+  - "Treat this contract as the source of truth."
+  - "Prioritize correctness and safety over cleverness."
+  - "Do not weaken invariants."
+  - "Do not add dependencies unless explicitly allowed."
+  - "If anything is ambiguous, implement the safest conservative behavior."

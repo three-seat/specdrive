@@ -1,0 +1,55 @@
+schema_version: 1
+
+metadata:
+  id: "F-XXX"
+  title: "<TITLE>"
+  status: "draft" # draft | in_progress | implemented | deprecated
+
+summary: |
+  TODO: 2-4 lines describing the feature.
+
+scope:
+  product: "specdrive"
+  service: "specdrive-cli"
+  repo: "specdrive"
+  area: "TODO: cli|spec|contract|git|ai|docs"
+
+requirements:
+  high_level: []
+  low_level: []
+
+# Exactly one of these should be used for most features in this repo.
+cli:
+  command: ""          # e.g. "new-feature"
+  args: []             # e.g. ["<FEATURE_ID>"]
+  flags: []            # e.g. ["--critical"]
+  description: ""
+
+behaviour:
+  steps: []            # ordered list of what happens
+
+logic:
+  invariants: []       # "must always be true"
+  error_conditions: [] # structured-ish descriptions of failures
+
+filesystem:
+  creates_paths: []
+  reads_paths: []
+  copies_templates:
+    - from: ""
+      to: ""
+  must_not_modify: []
+
+git_safety:
+  require_clean_tree: false
+  allow_untracked: true
+
+verification:
+  strategy: ["unit"]
+  test_cases: []       # list of 1–3 concrete tests to implement
+
+ai_instructions:
+  - "Treat this contract as the source of truth for implementing the feature."
+  - "Do not modify this file unless explicitly instructed."
+  - "Prefer small, composable functions and clear error messages."
+  - "Avoid adding dependencies unless the contract explicitly allows it."
