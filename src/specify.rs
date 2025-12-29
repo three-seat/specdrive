@@ -22,7 +22,7 @@ pub fn ensure_feature_spec(feature_id: &str) -> Result<PathBuf> {
         ("<title>", &title),
         ("docs/features/F-XXX/contract.yaml", &format!("docs/features/{feature_id}/contract.yaml")),
         ("<YYYY-MM-DD>", &utils::today_yyyy_mm_dd()),
-        ("<you>", "lou"),
+        ("<you>", "three_seat"),
     ],
 )?;
 

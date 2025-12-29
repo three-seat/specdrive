@@ -6,50 +6,117 @@ metadata:
   status: "draft" # draft | in_progress | implemented | deprecated
 
 summary: |
-  TODO: 2-4 lines describing the feature.
+  Add a `specdrive bootstrap` command that initializes the minimum Specdrive
+  project structure in the current repository: .specify templates and docs/
+  contract templates. It should be safe and idempotent.
 
 scope:
   product: "specdrive"
   service: "specdrive-cli"
   repo: "specdrive"
-  area: "TODO: cli|spec|contract|git|ai|docs"
+  area: "cli"
 
 requirements:
-  high_level: []
-  low_level: []
+  high_level:
+    - id: "HLR-001"
+      text: "The CLI shall provide a `bootstrap` command to initialize Specdrive project structure in the current repo."
+    - id: "HLR-002"
+      text: "Bootstrap shall be safe to run multiple times without corrupting existing files."
+  low_level:
+    - id: "LLR-001"
+      parent: "HLR-001"
+      text: "Running `specdrive bootstrap` shall create the .specify/templates directory and feature.spec.md template if they do not already exist."
+    - id: "LLR-002"
+      parent: "HLR-001"
+      text: "Running `specdrive bootstrap` shall create docs/templates/feature.contract.minimal.yaml and docs/templates/feature.contract.critical.yaml if they do not already exist."
+    - id: "LLR-003"
+      parent: "HLR-001"
+      text: "Running `specdrive bootstrap` shall create the docs/features, docs/milestones, and docs/adrs directories if they do not already exist."
+    - id: "LLR-004"
+      parent: "HLR-002"
+      text: "Bootstrap must never overwrite an existing template file without a future explicit `--force` flag (not implemented in this feature)."
 
 # Exactly one of these should be used for most features in this repo.
 cli:
-  command: ""          # e.g. "new-feature"
-  args: []             # e.g. ["<FEATURE_ID>"]
-  flags: []            # e.g. ["--critical"]
-  description: ""
+  command: "bootstrap"
+  args: []             # no positional args for now
+  flags: []            # no flags in F-001; --force can be a later feature
+  description: "Initialize Specdrive project structure (.specify templates and docs/ templates) in the current repository."
 
 behaviour:
-  steps: []            # ordered list of what happens
+  steps:
+    - "Determine the current working directory and treat it as the repo root."
+    - "Ensure the .specify/templates directory exists."
+    - "Create .specify/templates/feature.spec.md if it does not already exist, using the built-in default template content."
+    - "Ensure docs/ exists and create docs/features, docs/milestones, and docs/adrs directories if they do not already exist."
+    - "Create docs/templates directory if it does not already exist."
+    - "Create docs/templates/feature.contract.minimal.yaml if it does not already exist, using the built-in minimal contract template content."
+    - "Create docs/templates/feature.contract.critical.yaml if it does not already exist, using the built-in critical contract template content."
+    - "Print a concise summary of what was created and what was left untouched."
 
 logic:
-  invariants: []       # "must always be true"
-  error_conditions: [] # structured-ish descriptions of failures
+  invariants:
+    - "Bootstrap must not overwrite any existing template files (feature.spec.md or feature.contract.*.yaml)."
+    - "After a successful run, the minimal directory structure required for specdrive ( .specify/templates, .specify/specs, docs/templates, docs/features ) must exist."
+  error_conditions:
+    - code: "TEMPLATE_EXISTS"
+      description: "A destination template file already exists."
+      effect: "Do not overwrite; log a message indicating the file was left unchanged and continue with other steps."
+    - code: "IO_ERROR"
+      description: "Failure to create directory or write a template file."
+      effect: "Abort with a non-zero exit code and print an error message indicating which path failed."
 
 filesystem:
-  creates_paths: []
+  creates_paths:
+    - ".specify/"
+    - ".specify/templates/"
+    - ".specify/specs/"
+    - ".specify/templates/feature.spec.md"
+    - "docs/"
+    - "docs/features/"
+    - "docs/milestones/"
+    - "docs/adrs/"
+    - "docs/templates/"
+    - "docs/templates/feature.contract.minimal.yaml"
+    - "docs/templates/feature.contract.critical.yaml"
   reads_paths: []
   copies_templates:
-    - from: ""
-      to: ""
-  must_not_modify: []
+    - from: "embedded:feature.spec.md"
+      to: ".specify/templates/feature.spec.md"
+    - from: "embedded:feature.contract.minimal.yaml"
+      to: "docs/templates/feature.contract.minimal.yaml"
+    - from: "embedded:feature.contract.critical.yaml"
+      to: "docs/templates/feature.contract.critical.yaml"
+  must_not_modify:
+    - "Cargo.toml"
+    - "src/"
+    - ".git/"
 
 git_safety:
-  require_clean_tree: false
+  require_clean_tree: false      # scaffolding only; safe to run in a dirty tree
   allow_untracked: true
 
 verification:
-  strategy: ["unit"]
-  test_cases: []       # list of 1–3 concrete tests to implement
+  strategy: ["unit", "integration"]
+  test_cases:
+    - id: "TC-001"
+      requirement: "LLR-001"
+      type: "integration"
+      description: "In an empty test directory, running `specdrive bootstrap` creates .specify/templates/feature.spec.md and docs/templates/*.yaml without errors."
+    - id: "TC-002"
+      requirement: "LLR-002"
+      type: "integration"
+      description: "Running `specdrive bootstrap` a second time in the same directory does not overwrite existing template files and exits successfully."
+    - id: "TC-003"
+      requirement: "LLR-003"
+      type: "unit"
+      description: "If creating a directory fails (e.g., permissions), the command returns a non-zero exit code and prints an error mentioning the path."
+  # coverage is overkill to spell out here; you can enforce via tests later
+  # but leave strategy as-is for now.
 
 ai_instructions:
-  - "Treat this contract as the source of truth for implementing the feature."
-  - "Do not modify this file unless explicitly instructed."
-  - "Prefer small, composable functions and clear error messages."
-  - "Avoid adding dependencies unless the contract explicitly allows it."
+  - "Treat this contract as the source of truth for implementing the `specdrive bootstrap` command."
+  - "Implement the command in Rust using small, composable functions for directory creation and template writing."
+  - "Do not overwrite existing template files; instead, log that they were skipped."
+  - "Do not introduce new dependencies (crates); use std only."
+  - "Do not modify Cargo.toml, src/, or .git/ as part of this feature."
