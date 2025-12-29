@@ -2,15 +2,15 @@ schema_version: 1
 
 metadata:
   id: "F-002-implement"
-  title: "002 Implement"
+  title: "002 Implement command"
   status: "draft"
   critical: true
 
 summary: |
-  Add an `implement` subcommand to specdrive that orchestrates AI-assisted
-  implementation for a given feature id. The command enforces a clean git
-  working tree, verifies that the feature's spec and contract exist, and then
-  prepares a clear summary of what should be implemented for the chosen AI tool.
+  Add a `specdrive implement <FEATURE_ID>` command that reads the feature's
+  spec and contract, performs basic validation, and prints a copy-paste-ready
+  AI implementation prompt to stdout. The command is strictly read-only and
+  does not call any external services.
 
 scope:
   product: "specdrive"
@@ -21,101 +21,90 @@ scope:
 requirements:
   high_level:
     - id: "HLR-001"
-      text: "The CLI shall provide `specdrive implement <FEATURE_ID>` to drive AI-assisted implementation of a feature."
+      text: "Provide a CLI command that generates an AI-ready implementation prompt from a feature spec and contract."
     - id: "HLR-002"
-      text: "The implement command shall refuse to run if the git working tree is not clean (excluding allowed untracked files)."
-    - id: "HLR-003"
-      text: "The implement command shall validate that both the spec and contract exist for the given feature id."
+      text: "The command must be read-only and must not create, modify, or delete any files."
   low_level:
     - id: "LLR-001"
       parent: "HLR-001"
-      text: "`specdrive implement <FEATURE_ID>` shall resolve `.specify/specs/<FEATURE_ID>.spec.md` and `docs/features/<FEATURE_ID>/contract.yaml`."
+      text: "Given FEATURE_ID, resolve `.specify/specs/<FEATURE_ID>.spec.md` and `docs/features/<FEATURE_ID>/contract.yaml`."
     - id: "LLR-002"
-      parent: "HLR-002"
-      text: "If git_safety.require_clean_tree is true and the working tree is dirty (excluding allowed untracked files), the command shall exit with a non-zero code and not modify any files."
+      parent: "HLR-001"
+      text: "If either file is missing or unreadable, print a clear error including the path and exit with a non-zero status."
     - id: "LLR-003"
       parent: "HLR-001"
-      text: "The command shall print a concise summary of the feature (id, title, spec path, contract path) suitable to paste into an AI prompt."
+      text: "On success, print a structured prompt that clearly delimits SPEC and CONTRACT sections, plus implementation guardrails."
     - id: "LLR-004"
-      parent: "HLR-001"
-      text: "The initial implementation shall not call any AI APIs directly; it only prepares information for the user to use with their AI tool."
+      parent: "HLR-002"
+      text: "The command must not create, modify, or delete any files."
 
 assumptions:
   - id: "A-001"
-    text: "Repo layout follows .specify/ and docs/ conventions."
+    text: "Repo layout follows `.specify/specs/<FEATURE_ID>.spec.md` and `docs/features/<FEATURE_ID>/contract.yaml`."
   - id: "A-002"
-    text: "A git repository is initialized in the project root."
-  - id: "A-003"
-    text: "Required tools are installed (git)."
+    text: "The command is run from the repository root."
 
 preconditions:
   - id: "P-001"
-    text: "Command is run from repo root."
-  - id: "P-002"
-    text: "`FEATURE_ID` is a valid identifier previously created with `specdrive new-feature`."
+    text: "FEATURE_ID is a non-empty string."
 
 impact:
   security:
-    confidentiality: "low" # low | medium | high
+    confidentiality: "low"  # may expose local spec/contract contents to AI via copy-paste
     integrity: "low"
     availability: "low"
-    rationale: "Command operates on local repo files and git metadata only; no network calls or secrets."
+    rationale: "Command only reads local files and prints to stdout; it does not modify code or production systems."
   privacy:
     pii_involved: false
-    rationale: "No user data or PII is processed."
+    rationale: "Specs and contracts should not contain PII."
 
 architecture:
   related_docs:
     - "docs/system-overview.md"
   constraints:
-    - "No secrets written to disk."
-    - "No network calls unless explicitly required."
-    - "Do not modify spec or contract files from this command; they are read-only for implement."
+    - "No network calls."
+    - "No file modifications."
+    - "Only read files under the current repo."
 
 cli:
   command: "implement"
   args:
     - "<FEATURE_ID>"
-  flags:
-    - "--dry-run (optional, reserved for future use)"
-  description: >
-    Verify git safety, locate the spec and contract for <FEATURE_ID>, and
-    print a summary block the user can feed into their AI tool to implement
-    the feature according to the contract.
+  flags: []
+  description: "Generate an AI-ready implementation prompt for the given feature."
   exit_codes:
     - code: 0
       meaning: "Success."
     - code: 1
-      meaning: "Usage / precondition failure (missing FEATURE_ID, not in repo root, etc.)."
+      meaning: "Usage error (e.g. missing FEATURE_ID)."
     - code: 2
-      meaning: "Underlying git or filesystem failure (missing files, git error, etc.)."
+      meaning: "Spec or contract file missing or unreadable."
 
 behaviour:
   steps:
-    - "Parse FEATURE_ID from the CLI arguments."
-    - "Verify the current directory is inside a git repository (e.g., `git rev-parse --show-toplevel`)."
-    - "Check working tree cleanliness according to git_safety (require_clean_tree and allow_untracked)."
+    - "Parse CLI args and extract FEATURE_ID."
     - "Resolve spec path: `.specify/specs/<FEATURE_ID>.spec.md`."
     - "Resolve contract path: `docs/features/<FEATURE_ID>/contract.yaml`."
-    - "If either file is missing, print a clear error and exit non-zero."
-    - "Read the spec front-matter and the contract metadata to extract id/title/status."
-    - "Print a structured summary including feature id, title, spec path, contract path, and suggested AI instructions."
-    - "Do not modify any source files, specs, or contracts in this initial implementation."
+    - "If either file is missing, print a clear error mentioning the path; exit with code 2."
+    - "Read both files as UTF-8 strings."
+    - "Construct an AI prompt with clearly delimited SPEC and CONTRACT sections plus guardrails."
+    - "Print the prompt to stdout only."
+    - "Exit with code 0 on success."
 
 logic:
   invariants:
-    - "Never modify spec or contract files from this command."
-    - "Never proceed with implementation steps if git_safety.require_clean_tree is true and the working tree is dirty."
+    - "The command must not create, modify, or delete any files."
+    - "The command must not make any network calls."
   error_conditions:
-    - code: "ERR_NOT_GIT_REPO"
-      description: "Current directory is not inside a git repository."
-      effect: "Print error, exit code 2, no files are modified."
-    - code: "ERR_DIRTY_TREE"
-      description: "Working tree is not clean when a clean tree is required."
-      effect: "Print error, exit code 2, no files are modified."
-    - code: "ERR_SPEC_OR_CONTRACT_MISSING"
-      description: "Spec or contract file is missing for the given FEATURE_ID."
-      effect: "Print error, exit code 2, no files are modified."
+    - code: "MISSING_SPEC"
+      description: "Spec file does not exist for the given FEATURE_ID."
+      effect: "Print an error including the spec path and exit with code 2."
+    - code: "MISSING_CONTRACT"
+      description: "Contract file does not exist for the given FEATURE_ID."
+      effect: "Print an error including the contract path and exit with code 2."
+    - code: "READ_ERROR"
+      description: "Spec or contract file exists but cannot be read."
+      effect: "Print an error including the failing path and exit with code 2."
 
 filesystem:
   creates_paths: []
@@ -128,48 +117,49 @@ filesystem:
     - "docs/features/<FEATURE_ID>/contract.yaml"
 
 integrations:
-  tools:
-    - name: "git"
-      purpose: "Working tree checks / repo root discovery."
+  tools: []
 
 git_safety:
-  require_clean_tree: true
+  require_clean_tree: false
   allow_untracked: true
-  rationale: "Avoid running AI-driven implementation on top of uncommitted changes."
+  rationale: "Command is read-only and does not modify the working tree."
 
 verification:
   strategy: ["unit", "integration"]
   test_cases:
     - id: "TC-001"
-      requirement: "HLR-002"
-      type: "integration"
-      description: "`specdrive implement F-002-implement` fails with a clear error when the git working tree is dirty."
-    - id: "TC-002"
-      requirement: "HLR-003"
-      type: "integration"
-      description: "`specdrive implement F-002-implement` fails with a clear error if the spec or contract file is missing."
-    - id: "TC-003"
       requirement: "HLR-001"
       type: "integration"
-      description: "With a clean tree and existing spec/contract, the command prints a summary including id, title, spec path, and contract path."
+      description: "With valid spec and contract for F-001-bootstrap, `specdrive implement F-001-bootstrap` prints a structured prompt and exits 0."
+    - id: "TC-002"
+      requirement: "LLR-002"
+      type: "integration"
+      description: "If the spec file is missing, the command prints an error including the spec path and exits with code 2."
+    - id: "TC-003"
+      requirement: "LLR-002"
+      type: "integration"
+      description: "If the contract file is missing, the command prints an error including the contract path and exits with code 2."
+    - id: "TC-004"
+      requirement: "LLR-004"
+      type: "unit"
+      description: "The command does not write to the filesystem (no new or modified files after running)."
   coverage_expectations:
     code: "statement"
-    notes: "Exercise success path, missing files, and dirty git tree."
+    notes: "Exercise success path and all defined error conditions."
 
 reviews:
   required: true
   checklist:
-    - "Spec and contract agree on CLI shape and behaviour."
-    - "Git safety rules are enforced in code and tested."
-    - "No file modifications occur in this initial implementation."
+    - "Spec and contract agree on behaviour, paths, and exit codes."
+    - "Invariants (read-only, no network) are enforced in code."
+    - "File paths and exit codes match the CLI description."
   status:
     reviewed_by: ""
     reviewed_at: ""
 
 ai_instructions:
-  - "Treat this contract as the source of truth for the initial `specdrive implement` command."
-  - "Do not modify spec or contract files from the implement command; they are read-only."
-  - "Implement git safety checks exactly as described under git_safety and error_conditions."
-  - "Keep the implementation small and composable (separate git-check, path-resolution, and printing logic)."
-  - "Do not add external dependencies; use standard library only."
-  - "If anything is ambiguous, choose the safest conservative behaviour (fail fast with clear errors rather than guessing)."
+  - "Treat this contract as the source of truth for the `specdrive implement` command."
+  - "Do not modify specs or contracts from this command; it must be read-only."
+  - "Ensure error messages include the relevant file paths."
+  - "Do not add any network calls or external dependencies."
+  - "Prefer small, clear functions and explicit error handling."

@@ -1,50 +1,86 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+# Specdrive Constitution
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. Spec + Contract First (NON-NEGOTIABLE)
+Every non-trivial change must be defined by:
+- A feature spec in `.specify/specs/<FEATURE_ID>.spec.md`
+- A feature contract in `docs/features/<FEATURE_ID>/contract.yaml`
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+Code changes **must follow** the spec + contract, not the other way around.
+Specs and contracts are versioned in git and reviewed like code.
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+### II. CLI-First, Simple, and Boring
+Specdrive is a **single binary CLI** with:
+- Simple subcommands (`bootstrap`, `new-feature`, `implement`, etc.)
+- No hidden side effects
+- No external crates unless explicitly approved in a feature contract
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+Commands should:
+- Read/write plain files
+- Print clear, copy-pasteable output
+- Fail fast with explicit error messages
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+### III. AI as a Junior Dev, Not the Architect
+AI is used to:
+- Draft specs and contracts
+- Implement code **inside the boundaries** set by specs + contracts
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+AI is **not** allowed to:
+- Change specs or contracts without explicit instruction
+- Add dependencies not permitted by the contract
+- Bypass invariants (e.g., git safety, read-only commands)
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+Human responsibilities:
+- Decide which features are `--critical`
+- Review diffs
+- Keep specs and contracts aligned with reality
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+### IV. Safety and Reversibility
+- Prefer read-only commands for early versions (e.g., `implement` prints prompts only).
+- Any command that mutates code or config must:
+  - Be clearly documented in its contract (`git_safety`, `filesystem` sections).
+  - Be easy to revert via git.
+- No network calls from specdrive in v1; it operates on **local files only**.
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+## Development Workflow
+
+### Feature Flow
+1. Create a feature:
+   - `specdrive new-feature <FEATURE_ID> [--critical]`
+   - Edit the generated spec + contract until they match the intended behaviour.
+2. Commit spec + contract **before** AI-implemented code.
+3. Use AI (via Claude / Spec Kit) to implement or update code:
+   - AI must read:
+     - `.specify/specs/<FEATURE_ID>.spec.md`
+     - `docs/features/<FEATURE_ID>/contract.yaml`
+4. Review and run tests; then commit code changes.
+
+### Command Design
+- Each new command must:
+  - Have a feature id (F-XXX)
+  - Have a spec + contract
+  - Describe CLI shape, behaviour, invariants, and filesystem effects
+- `--critical` features use the maximal contract template and tighter rules.
+
+## Additional Constraints
+
+- Technology:
+  - Rust, standard library first.
+  - No new crates without an explicit rationale in a feature contract.
+- Security:
+  - No hard-coded secrets.
+  - No network traffic from the CLI in v1.
+- Repo layout is stable:
+  - `.specify/` for specs/templates/memory
+  - `docs/features/` for contracts
+  - `src/` for Rust code
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+- This constitution is the top-level guidance for specdrive’s SDLC.
+- Any change that breaks these principles (e.g., adding network calls, changing the feature flow) must:
+  - Be introduced via a feature spec + contract;
+  - Update this constitution with a version bump and rationale.
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+**Version**: 0.1.0 | **Ratified**: 2025-12-29 | **Last Amended**: 2025-12-29
