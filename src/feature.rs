@@ -1,13 +1,12 @@
 use std::path::{Path, PathBuf};
 
+use crate::Result;
 use crate::fsutil;
 use crate::specify;
-use crate::Result;
 
 pub fn new_feature(feature_id: &str, critical: bool) -> Result<()> {
     // 1) Create spec file from template (idempotent)
     let spec_path = specify::ensure_feature_spec(feature_id)?;
-
 
     // 2) Create docs/features/<id>/
     let feature_dir = Path::new("docs").join("features").join(feature_id);
@@ -43,10 +42,7 @@ pub fn new_feature(feature_id: &str, critical: bool) -> Result<()> {
 
 fn default_title(feature_id: &str) -> String {
     // keep it consistent with specify.rs helper
-    let s = feature_id
-        .splitn(2, '-')
-        .nth(1)
-        .unwrap_or(feature_id);
+    let s = feature_id.splitn(2, '-').nth(1).unwrap_or(feature_id);
 
     s.replace('-', " ")
         .split_whitespace()

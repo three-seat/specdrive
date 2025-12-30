@@ -40,8 +40,7 @@ pub fn copy_template_with_replacements(
         contents = contents.replace(needle, value);
     }
 
-    std::fs::write(to, contents)
-        .map_err(|e| format!("failed to write {}: {e}", to.display()))?;
+    std::fs::write(to, contents).map_err(|e| format!("failed to write {}: {e}", to.display()))?;
 
     Ok(())
 }

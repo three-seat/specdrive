@@ -101,7 +101,7 @@ specdrive’s embedded assets **without overwriting any existing files**.
   - Success output should clearly list which paths were created and which were skipped.
 
 # Acceptance Criteria
-- [ ] AC-1: In a repo with `.git/` and `.specify/` present but no `docs/` or template files,
+- [x] AC-1: In a repo with `.git/` and `.specify/` present but no `docs/` or template files,
       `specdrive bootstrap` creates:
       - `.specify/specs/`
       - `.specify/templates/feature.spec.md`
@@ -110,11 +110,11 @@ specdrive’s embedded assets **without overwriting any existing files**.
       - `docs/templates/feature.contract.minimal.yaml`
       - `docs/templates/feature.contract.critical.yaml`
       and exits with code `0`.
-- [ ] AC-2: If `.git/` is missing, `specdrive bootstrap` exits with code `1` and prints an error
+- [x] AC-2: If `.git/` is missing, `specdrive bootstrap` exits with code `1` and prints an error
       indicating that it must be run in a git repo.
-- [ ] AC-3: If `.specify/` is missing, `specdrive bootstrap` exits with code `1` and prints an error
+- [x] AC-3: If `.specify/` is missing, `specdrive bootstrap` exits with code `1` and prints an error
       suggesting that the user run `specify init` first.
-- [ ] AC-4: When any of the target files already exist (e.g. a user-edited `feature.spec.md`),
+- [x] AC-4: When any of the target files already exist (e.g. a user-edited `feature.spec.md`),
       `specdrive bootstrap` leaves them unchanged, reports them as skipped, and still exits `0`
       as long as no other errors occur.
 - [ ] AC-5: If a filesystem error occurs while creating a directory or writing a template file,
