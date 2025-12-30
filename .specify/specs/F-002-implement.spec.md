@@ -24,9 +24,9 @@ Add a `specdrive implement <FEATURE_ID>` command that prepares and prints an AI-
     - `docs/features/<FEATURE_ID>/contract.yaml`
   - No network calls from `specdrive` itself; it only reads local files and prints to stdout.
   - No external crates (for now) beyond the Rust standard library.
-  - This is v1: we are **not** invoking AI via API yet, just generating a prompt.
+  - This is v0.1: we are **not** invoking AI via API yet, just generating a prompt.
 
-# Behaviour
+# Behavior
 
 ## User flow
 - Command / entrypoint:
@@ -47,7 +47,7 @@ Add a `specdrive implement <FEATURE_ID>` command that prepares and prints an AI-
   - `FEATURE_ID` malformed (empty string)
   - Files unreadable (permissions, IO errors)
 
-## Detailed behaviour
+## Detailed behavior
 - Parse CLI args and extract `<FEATURE_ID>`.
 - Resolve:
   - `spec_path = .specify/specs/<FEATURE_ID>.spec.md`
@@ -101,4 +101,4 @@ Add a `specdrive implement <FEATURE_ID>` command that prepares and prints an AI-
 
 # Open Questions
 - Q1: Should `implement` enforce a clean git working tree for future “auto-apply AI patch” workflows, or remain purely read-only? (For now, assume **no git check** since it only prints to stdout.)
-- Q2: Should we support an optional flag like `--short` or `--no-spec` / `--no-contract` to control how much context is printed for the AI? (Out of scope for v1 unless it’s obviously needed.)
+- Q2: Should we support an optional flag like `--short` or `--no-spec` / `--no-contract` to control how much context is printed for the AI? (Out of scope for v0.1 unless it’s obviously needed.)

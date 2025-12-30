@@ -80,7 +80,7 @@ cli:
     - code: 2
       meaning: "Spec or contract file missing or unreadable."
 
-behaviour:
+behavior:
   steps:
     - "Parse CLI args and extract FEATURE_ID."
     - "Resolve spec path: `.specify/specs/<FEATURE_ID>.spec.md`."
@@ -150,7 +150,7 @@ verification:
 reviews:
   required: true
   checklist:
-    - "Spec and contract agree on behaviour, paths, and exit codes."
+    - "Spec and contract agree on behavior, paths, and exit codes."
     - "Invariants (read-only, no network) are enforced in code."
     - "File paths and exit codes match the CLI description."
   status:

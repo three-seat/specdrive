@@ -3,12 +3,14 @@ schema_version: 1
 metadata:
   id: "F-001-bootstrap"
   title: "001 Bootstrap"
-  status: "draft" # draft | in_progress | implemented | deprecated
+  status: "draft"  # draft | in_progress | implemented | deprecated
 
 summary: |
-  Add a `specdrive bootstrap` command that initializes the minimum Specdrive
-  project structure in the current repository: .specify templates and docs/
-  contract templates. It should be safe and idempotent.
+  Add a `specdrive bootstrap` command that prepares an existing project
+  for spec-driven, AI-assisted development. It verifies prerequisites
+  (git repo, Spec Kit `.specify` directory), creates the standard
+  docs/structure, and installs the feature spec/contract templates from
+  specdrive’s embedded assets.
 
 scope:
   product: "specdrive"
@@ -19,104 +21,186 @@ scope:
 requirements:
   high_level:
     - id: "HLR-001"
-      text: "The CLI shall provide a `bootstrap` command to initialize Specdrive project structure in the current repo."
+      text: "Provide a bootstrap command that prepares a repository for specdrive usage without destroying existing content."
     - id: "HLR-002"
-      text: "Bootstrap shall be safe to run multiple times without corrupting existing files."
+      text: "Bootstrap must verify core prerequisites (git repo, Spec Kit initialized) and fail clearly if they are missing."
+    - id: "HLR-003"
+      text: "Bootstrap must install the standard feature spec and contract templates into the target repo."
   low_level:
     - id: "LLR-001"
-      parent: "HLR-001"
-      text: "Running `specdrive bootstrap` shall create the .specify/templates directory and feature.spec.md template if they do not already exist."
+      parent: "HLR-002"
+      text: "The command shall require that `.git/` exists and `.specify/` exists (created by `specify init`)."
     - id: "LLR-002"
       parent: "HLR-001"
-      text: "Running `specdrive bootstrap` shall create docs/templates/feature.contract.minimal.yaml and docs/templates/feature.contract.critical.yaml if they do not already exist."
+      text: "If `.specify/specs/` does not exist, the command shall create it."
     - id: "LLR-003"
-      parent: "HLR-001"
-      text: "Running `specdrive bootstrap` shall create the docs/features, docs/milestones, and docs/adrs directories if they do not already exist."
+      parent: "HLR-003"
+      text: "If `.specify/templates/feature.spec.md` does not exist, the command shall create it from `assets/bootstrap/feature.spec.md`."
     - id: "LLR-004"
-      parent: "HLR-002"
-      text: "Bootstrap must never overwrite an existing template file without a future explicit `--force` flag (not implemented in this feature)."
+      parent: "HLR-003"
+      text: "If `docs/`, `docs/features/`, or `docs/templates/` do not exist, the command shall create them."
+    - id: "LLR-005"
+      parent: "HLR-003"
+      text: "If `docs/templates/feature.contract.minimal.yaml` does not exist, the command shall create it from `assets/bootstrap/feature.contract.minimal.yaml`."
+    - id: "LLR-006"
+      parent: "HLR-003"
+      text: "If `docs/templates/feature.contract.critical.yaml` does not exist, the command shall create it from `assets/bootstrap/feature.contract.critical.yaml`."
+    - id: "LLR-007"
+      parent: "HLR-001"
+      text: "Bootstrap must not overwrite any existing files; if a target file exists, it shall leave it untouched and optionally log that it was skipped."
 
-# Exactly one of these should be used for most features in this repo.
+assumptions:
+  - id: "A-001"
+    text: "The current working directory is the root of a project repository."
+  - id: "A-002"
+    text: "Spec Kit (`specify`) has already been run via `specify init`, creating `.specify/`."
+  - id: "A-003"
+    text: "The specdrive binary has embedded templates corresponding to the assets/bootstrap files."
+
+preconditions:
+  - id: "P-001"
+    text: "A git repository exists in the project root (i.e., `.git/` directory is present)."
+  - id: "P-002"
+    text: "The `.specify/` directory exists in the project root."
+
+impact:
+  security:
+    confidentiality: "low"
+    integrity: "low"
+    availability: "low"
+    rationale: "The command only creates directories and template files within the current repo and does not touch production systems."
+  privacy:
+    pii_involved: false
+    rationale: "Bootstrap operates on project structure and template files, not user data."
+
+architecture:
+  related_docs:
+    - "docs/system-overview.md"   # optional future doc; does not have to exist yet
+    - "docs/adrs/ADR-001-specdrive-bootstrap-assumptions-and-responsibilities.md"
+
+  constraints:
+    - "No network calls."
+    - "No deletion of any existing files or directories."
+    - "No overwriting of user-modified templates."
+
 cli:
   command: "bootstrap"
-  args: []             # no positional args for now
-  flags: []            # no flags in F-001; --force can be a later feature
-  description: "Initialize Specdrive project structure (.specify templates and docs/ templates) in the current repository."
+  args: []
+  flags: []
+  description: >
+    Prepare an existing repo for specdrive by verifying git and Spec Kit
+    initialization, then creating the standard .specify/specs, feature
+    template, and docs/templates contract templates if missing.
+  exit_codes:
+    - code: 0
+      meaning: "Success."
+    - code: 1
+      meaning: "Usage or precondition failure (e.g. not a git repo, `.specify/` missing)."
+    - code: 2
+      meaning: "Filesystem error while creating directories or writing templates."
 
-behaviour:
+behavior:
   steps:
-    - "Determine the current working directory and treat it as the repo root."
-    - "Ensure the .specify/templates directory exists."
-    - "Create .specify/templates/feature.spec.md if it does not already exist, using the built-in default template content."
-    - "Ensure docs/ exists and create docs/features, docs/milestones, and docs/adrs directories if they do not already exist."
-    - "Create docs/templates directory if it does not already exist."
-    - "Create docs/templates/feature.contract.minimal.yaml if it does not already exist, using the built-in minimal contract template content."
-    - "Create docs/templates/feature.contract.critical.yaml if it does not already exist, using the built-in critical contract template content."
-    - "Print a concise summary of what was created and what was left untouched."
+    - "Verify that `.git/` exists; if not, print a clear error and exit with code 1."
+    - "Verify that `.specify/` exists; if not, print a clear error suggesting `specify init` and exit with code 1."
+    - "Ensure `.specify/specs/` exists (create if missing)."
+    - "Ensure `.specify/templates/` exists (create if missing)."
+    - "If `.specify/templates/feature.spec.md` does not exist, write it using the embedded `assets/bootstrap/feature.spec.md` template."
+    - "Ensure `docs/`, `docs/features/`, and `docs/templates/` directories exist (create if missing)."
+    - "If `docs/templates/feature.contract.minimal.yaml` does not exist, write it using the embedded `assets/bootstrap/feature.contract.minimal.yaml` template."
+    - "If `docs/templates/feature.contract.critical.yaml` does not exist, write it using the embedded `assets/bootstrap/feature.contract.critical.yaml` template."
+    - "Print a short success summary indicating which paths were created or skipped."
+    - "Exit with code 0 on success."
 
 logic:
   invariants:
-    - "Bootstrap must not overwrite any existing template files (feature.spec.md or feature.contract.*.yaml)."
-    - "After a successful run, the minimal directory structure required for specdrive ( .specify/templates, .specify/specs, docs/templates, docs/features ) must exist."
+    - "Bootstrap must never overwrite an existing file."
+    - "Bootstrap must never delete any files or directories."
+    - "Bootstrap must not make network calls."
   error_conditions:
-    - code: "TEMPLATE_EXISTS"
-      description: "A destination template file already exists."
-      effect: "Do not overwrite; log a message indicating the file was left unchanged and continue with other steps."
-    - code: "IO_ERROR"
-      description: "Failure to create directory or write a template file."
-      effect: "Abort with a non-zero exit code and print an error message indicating which path failed."
+    - code: "NOT_GIT_REPO"
+      description: "`.git/` directory not found in the current working directory."
+      effect: "Print a clear error and exit with code 1."
+    - code: "NO_SPECIFY_DIR"
+      description: "`.specify/` directory not found; Spec Kit has not been initialized."
+      effect: "Print a clear error suggesting `specify init` and exit with code 1."
+    - code: "FS_WRITE_ERROR"
+      description: "Failed to create a directory or write a template file."
+      effect: "Print an error including the path and exit with code 2."
 
 filesystem:
   creates_paths:
-    - ".specify/"
-    - ".specify/templates/"
     - ".specify/specs/"
+    - ".specify/templates/"
     - ".specify/templates/feature.spec.md"
     - "docs/"
     - "docs/features/"
-    - "docs/milestones/"
-    - "docs/adrs/"
     - "docs/templates/"
     - "docs/templates/feature.contract.minimal.yaml"
     - "docs/templates/feature.contract.critical.yaml"
-  reads_paths: []
+  reads_paths:
+    - ".git/"
+    - ".specify/"
   copies_templates:
-    - from: "embedded:feature.spec.md"
+    - from: "assets/bootstrap/feature.spec.md"
       to: ".specify/templates/feature.spec.md"
-    - from: "embedded:feature.contract.minimal.yaml"
+    - from: "assets/bootstrap/feature.contract.minimal.yaml"
       to: "docs/templates/feature.contract.minimal.yaml"
-    - from: "embedded:feature.contract.critical.yaml"
+    - from: "assets/bootstrap/feature.contract.critical.yaml"
       to: "docs/templates/feature.contract.critical.yaml"
   must_not_modify:
-    - "Cargo.toml"
-    - "src/"
+    - "."
     - ".git/"
+    - ".specify/specs/"
+    - "docs/features/"
+
+integrations:
+  tools:
+    - name: "git"
+      purpose: "Presence check to ensure bootstrap is run in a git repo."
+    - name: "specify"
+      purpose: "Initialization of `.specify/` is assumed to have been done beforehand."
 
 git_safety:
-  require_clean_tree: false      # scaffolding only; safe to run in a dirty tree
+  require_clean_tree: false
   allow_untracked: true
+  rationale: "Bootstrap is additive and non-destructive; it only creates missing scaffolding files."
 
 verification:
   strategy: ["unit", "integration"]
   test_cases:
     - id: "TC-001"
-      requirement: "LLR-001"
+      requirement: "HLR-002"
       type: "integration"
-      description: "In an empty test directory, running `specdrive bootstrap` creates .specify/templates/feature.spec.md and docs/templates/*.yaml without errors."
+      description: "If `.git/` is missing, `specdrive bootstrap` exits with code 1 and prints a clear error."
     - id: "TC-002"
-      requirement: "LLR-002"
+      requirement: "HLR-002"
       type: "integration"
-      description: "Running `specdrive bootstrap` a second time in the same directory does not overwrite existing template files and exits successfully."
+      description: "If `.specify/` is missing, `specdrive bootstrap` exits with code 1 and suggests running `specify init`."
     - id: "TC-003"
-      requirement: "LLR-003"
-      type: "unit"
-      description: "If creating a directory fails (e.g., permissions), the command returns a non-zero exit code and prints an error mentioning the path."
-  # coverage is overkill to spell out here; you can enforce via tests later
-  # but leave strategy as-is for now.
+      requirement: "HLR-003"
+      type: "integration"
+      description: "In a repo with git and `.specify/` but no docs/templates, `specdrive bootstrap` creates the expected directories and template files and exits 0."
+    - id: "TC-004"
+      requirement: "LLR-007"
+      type: "integration"
+      description: "If any target file already exists, bootstrap leaves it unchanged and reports it as skipped."
+  coverage_expectations:
+    code: "statement"
+    notes: "Cover success path and all defined error_conditions."
+
+reviews:
+  required: false
+  checklist:
+    - "Bootstrap does not overwrite existing files."
+    - "Error messages for missing git/specify are clear and actionable."
+  status:
+    reviewed_by: ""
+    reviewed_at: ""
 
 ai_instructions:
-  - "Treat this contract as the source of truth for implementing the `specdrive bootstrap` command."
-  - "Implement the command in Rust using small, composable functions for directory creation and template writing."
-  - "Do not overwrite existing template files; instead, log that they were skipped."
-  - "Do not introduce new dependencies (crates); use std only."
-  - "Do not modify Cargo.toml, src/, or .git/ as part of this feature."
+  - "Treat this contract as the source of truth for `specdrive bootstrap`."
+  - "Do not add network calls."
+  - "Do not overwrite existing files."
+  - "Use the assets/bootstrap templates as the source for created files."
+  - "Keep the implementation small and explicit, with clear error messages."

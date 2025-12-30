@@ -9,6 +9,8 @@ owners:
   - <you>
 created_at: <YYYY-MM-DD>
 contract: docs/features/F-XXX/contract.yaml
+adrs:
+ - <adrs>
 ---
 
 # Summary
@@ -18,7 +20,7 @@ One paragraph: what are we building and why.
 - What problem does this solve?
 - Any constraints (OS, tooling, repo layout, compatibility)?
 
-# Behaviour
+# Behavior
 ## User flow
 - Command / entrypoint:
 - Inputs:

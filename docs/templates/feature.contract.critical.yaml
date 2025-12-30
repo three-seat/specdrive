@@ -59,7 +59,7 @@ cli:
     - code: 2
       meaning: "Underlying tool or IO failure."
 
-behaviour:
+behavior:
   steps: []
 
 logic:
