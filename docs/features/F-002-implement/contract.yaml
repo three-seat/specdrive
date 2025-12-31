@@ -293,8 +293,8 @@ reviews:
     - "Git safety and helper usage are implemented as described."
     - "Supporting docs (constitution, system overview, ADRs) are handled defensively."
   status:
-    reviewed_by: ""
-    reviewed_at: ""
+    reviewed_by: "three-seat"
+    reviewed_at: "12-31-2025"
 
 ai_instructions:
   - "Treat this contract as the source of truth for the `specdrive implement` command."
