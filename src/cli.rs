@@ -1,6 +1,7 @@
 use crate::Result;
 use crate::bootstrap;
 use crate::feature;
+use crate::implement;
 
 pub fn run() -> Result<()> {
     let mut args = std::env::args().skip(1);
@@ -26,6 +27,13 @@ pub fn run() -> Result<()> {
             let critical = args.any(|a| a == "--critical");
             feature::new_feature(&feature_id, critical)
         }
+        "implement" => {
+            let Some(feature_id) = args.next() else {
+                return Err("implement requires <FEATURE_ID>".into());
+            };
+            // Per F-002 contract: implement exits with specific codes (0, 1, or 2)
+            implement::implement_feature(&feature_id)
+        }
         "help" | "-h" | "--help" => {
             print_usage();
             Ok(())
@@ -43,5 +51,6 @@ fn print_usage() {
     eprintln!("Usage:");
     eprintln!("  specdrive bootstrap");
     eprintln!("  specdrive new-feature <FEATURE_ID> [--critical]");
+    eprintln!("  specdrive implement <FEATURE_ID>");
     eprintln!("  specdrive help");
 }
