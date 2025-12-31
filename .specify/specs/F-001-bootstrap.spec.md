@@ -3,7 +3,7 @@ id: F-001-bootstrap
 title: 001 Bootstrap
 type: feature
 system: specdrive
-status: draft
+status: implemented
 area: cli
 owners:
   - three_seat

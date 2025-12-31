@@ -7,10 +7,12 @@ metadata:
   critical: true
 
 summary: |
-  Add a `specdrive implement <FEATURE_ID>` command that reads the feature's
-  spec and contract, performs basic validation, and prints a copy-paste-ready
-  AI implementation prompt to stdout. The command is strictly read-only and
-  does not call any external services.
+  Add a `specdrive implement <FEATURE_ID>` command that validates the repo
+  state (git, Spec Kit, clean working tree, spec/contract presence and
+  contract YAML validity), then prints a deterministic, AI-ready prompt to
+  stdout. The prompt lists the relevant file paths and instructs the AI to
+  read those files from disk; it does NOT inline the spec or contract
+  contents. The command is strictly read-only and makes no network calls.
 
 scope:
   product: "specdrive"
@@ -21,73 +23,118 @@ scope:
 requirements:
   high_level:
     - id: "HLR-001"
-      text: "Provide a CLI command that generates an AI-ready implementation prompt from a feature spec and contract."
+      text: "Provide a CLI command `specdrive implement <FEATURE_ID>` that generates an AI-ready implementation prompt referencing feature spec/contract and related docs."
     - id: "HLR-002"
-      text: "The command must be read-only and must not create, modify, or delete any files."
+      text: "The command must enforce basic preconditions: git repo, Spec Kit initialization, and clean working tree."
+    - id: "HLR-003"
+      text: "The command must validate that the feature spec and contract exist and that the contract YAML is well-formed."
+    - id: "HLR-004"
+      text: "For critical features, the command must enforce a review gate before allowing prompt generation."
+    - id: "HLR-005"
+      text: "The command must be strictly read-only: it must not create, modify, or delete any files."
   low_level:
     - id: "LLR-001"
+      parent: "HLR-002"
+      text: "Ensure `.git/` exists in the current directory; if missing, print a clear error and exit with code 1."
+    - id: "LLR-002"
+      parent: "HLR-002"
+      text: "Ensure `.specify/` exists; if missing, print a clear error suggesting `specify init` and exit with code 1."
+    - id: "LLR-003"
+      parent: "HLR-002"
+      text: "Use a shared helper (e.g., `ensure_repo_and_specify_ready()`) to verify git repo, `.specify/`, and a clean working tree before proceeding."
+    - id: "LLR-004"
+      parent: "HLR-003"
+      text: "Resolve `.specify/specs/<FEATURE_ID>.spec.md` and `docs/features/<FEATURE_ID>/contract.yaml`; if either is missing, print a clear error including the path and exit with code 2."
+    - id: "LLR-005"
+      parent: "HLR-003"
+      text: "Read the contract file as UTF-8 text and parse it using a YAML library; if parsing fails, print a clear error including the path and exit with code 2."
+    - id: "LLR-006"
+      parent: "HLR-004"
+      text: "If `metadata.critical` is true, require non-empty `reviews.status.reviewed_by` and `reviews.status.reviewed_at`; otherwise print a clear error and exit with code 1."
+    - id: "LLR-007"
+      parent: "HLR-001"
+      text: "Construct a deterministic prompt that lists the key file paths (spec, contract, constitution, ADRs) and instructs the AI to read them, without inlining their contents."
+    - id: "LLR-008"
+      parent: "HLR-001"
+      text: "If `docs/ai/implement-header.md` and/or `docs/ai/implement-footer.md` exist, include their contents at the top and bottom of the prompt respectively."
+    - id: "LLR-009"
+      parent: "HLR-005"
+      text: "The command must not create, modify, or delete any files."
+    - id: "LLR-010"
       parent: "HLR-001"
       text: "Given FEATURE_ID, resolve `.specify/specs/<FEATURE_ID>.spec.md` and `docs/features/<FEATURE_ID>/contract.yaml`."
-    - id: "LLR-002"
+    - id: "LLR-011"
       parent: "HLR-001"
-      text: "If either file is missing or unreadable, print a clear error including the path and exit with a non-zero status."
-    - id: "LLR-003"
-      parent: "HLR-001"
-      text: "On success, print a structured prompt that clearly delimits SPEC and CONTRACT sections, plus implementation guardrails."
-    - id: "LLR-004"
-      parent: "HLR-002"
-      text: "The command must not create, modify, or delete any files."
+      text: "If either the spec or contract file is missing, treat FEATURE_ID as unknown, print a clear error including the path, and exit with code 2."
 
 assumptions:
   - id: "A-001"
-    text: "Repo layout follows `.specify/specs/<FEATURE_ID>.spec.md` and `docs/features/<FEATURE_ID>/contract.yaml`."
+    text: "The current working directory is the root of a git repository."
   - id: "A-002"
-    text: "The command is run from the repository root."
+    text: "Spec Kit has been initialized via `specify init`, creating `.specify/`."
+  - id: "A-003"
+    text: "The repo uses the standard specdrive layout: `.specify/specs/` and `docs/features/`."
+  - id: "A-004"
+    text: "If present, ADRs live under `docs/adrs/` and the constitution lives at `.specify/memory/constitution.md`."
 
 preconditions:
   - id: "P-001"
     text: "FEATURE_ID is a non-empty string."
+  - id: "P-002"
+    text: "The command is run from the repository root."
 
 impact:
   security:
-    confidentiality: "low"  # may expose local spec/contract contents to AI via copy-paste
+    confidentiality: "low"  # may expose local spec/contract contents to AI via copy-paste of file paths
     integrity: "low"
     availability: "low"
-    rationale: "Command only reads local files and prints to stdout; it does not modify code or production systems."
+    rationale: "Command only reads local files and git state; it does not modify code or production systems."
   privacy:
     pii_involved: false
-    rationale: "Specs and contracts should not contain PII."
+    rationale: "Specs, contracts, and ADRs should not contain PII."
 
 architecture:
   related_docs:
-    - "docs/system-overview.md"
+    - "docs/system-overview.md"      # optional
+    - "docs/adrs/"                   # ADRs scanned by AI, not by specdrive
   constraints:
     - "No network calls."
     - "No file modifications."
     - "Only read files under the current repo."
+    - "Allow a single YAML parsing crate (e.g. serde_yaml) for contract metadata; otherwise prefer the Rust standard library."
+  notes:
+    - "Introduce and reuse a helper (e.g. `ensure_repo_and_specify_ready()`) shared with other commands such as `bootstrap`."
 
 cli:
   command: "implement"
   args:
     - "<FEATURE_ID>"
   flags: []
-  description: "Generate an AI-ready implementation prompt for the given feature."
+  description: >
+    Validate repo and Spec Kit state, then print a deterministic AI prompt
+    that lists relevant spec/contract/constitution/ADR file paths and
+    guardrails for implementing <FEATURE_ID>.
   exit_codes:
     - code: 0
       meaning: "Success."
     - code: 1
-      meaning: "Usage error (e.g. missing FEATURE_ID)."
+      meaning: "Usage or precondition failure (missing FEATURE_ID, not a git repo, `.specify/` missing, dirty tree, critical feature not reviewed, etc.)."
     - code: 2
-      meaning: "Spec or contract file missing or unreadable."
+      meaning: "Filesystem or parsing error (missing/unreadable spec/contract, invalid YAML)."
 
-behavior:
+behaviour:
   steps:
     - "Parse CLI args and extract FEATURE_ID."
+    - "If FEATURE_ID is empty or missing, print a usage error and exit with code 1."
+    - "Call `ensure_repo_and_specify_ready()` (or equivalent helper) to verify `.git/`, `.specify/`, and clean working tree; on failure, print a clear error and exit with code 1."
     - "Resolve spec path: `.specify/specs/<FEATURE_ID>.spec.md`."
     - "Resolve contract path: `docs/features/<FEATURE_ID>/contract.yaml`."
-    - "If either file is missing, print a clear error mentioning the path; exit with code 2."
-    - "Read both files as UTF-8 strings."
-    - "Construct an AI prompt with clearly delimited SPEC and CONTRACT sections plus guardrails."
+    - "If either file is missing, print a clear error including the missing path and exit with code 2."
+    - "Read the contract file as UTF-8 text."
+    - "Parse the contract YAML; if parsing fails, print a clear error including the path and exit with code 2."
+    - "Inspect `metadata.critical`; if true, check `reviews.status.reviewed_by` and `reviews.status.reviewed_at` are non-empty; if not, print an error and exit with code 1."
+    - "Optionally read `docs/ai/implement-header.md` and `docs/ai/implement-footer.md` if they exist."
+    - "Construct a prompt that includes: optional header; a built-in intro; a list of files the AI must read; built-in guardrails; optional footer."
     - "Print the prompt to stdout only."
     - "Exit with code 0 on success."
 
@@ -95,34 +142,67 @@ logic:
   invariants:
     - "The command must not create, modify, or delete any files."
     - "The command must not make any network calls."
+    - "The generated prompt must not inline the contents of the spec or contract; it must reference file paths instead."
+    - "A critical feature (`metadata.critical: true`) must not be implemented unless its review status fields are populated."
   error_conditions:
+    - code: "NOT_GIT_REPO"
+      description: "`.git/` directory not found in the current working directory."
+      effect: "Print a clear error and exit with code 1."
+    - code: "NO_SPECIFY_DIR"
+      description: "`.specify/` directory not found; Spec Kit has not been initialized."
+      effect: "Print a clear error suggesting `specify init` and exit with code 1."
+    - code: "DIRTY_TREE"
+      description: "Git working tree is not clean when a clean tree is required."
+      effect: "Print a clear error and exit with code 1."
     - code: "MISSING_SPEC"
       description: "Spec file does not exist for the given FEATURE_ID."
       effect: "Print an error including the spec path and exit with code 2."
     - code: "MISSING_CONTRACT"
       description: "Contract file does not exist for the given FEATURE_ID."
       effect: "Print an error including the contract path and exit with code 2."
-    - code: "READ_ERROR"
-      description: "Spec or contract file exists but cannot be read."
-      effect: "Print an error including the failing path and exit with code 2."
+    - code: "CONTRACT_READ_ERROR"
+      description: "Contract file exists but cannot be read as UTF-8."
+      effect: "Print an error including the path and exit with code 2."
+    - code: "CONTRACT_YAML_INVALID"
+      description: "Contract YAML cannot be parsed."
+      effect: "Print an error including the path and exit with code 2."
+    - code: "CRITICAL_NOT_REVIEWED"
+      description: "Contract is marked critical but review fields are missing or empty."
+      effect: "Print an error and exit with code 1."
 
 filesystem:
   creates_paths: []
   reads_paths:
+    - ".git/"
+    - ".specify/"
     - ".specify/specs/<FEATURE_ID>.spec.md"
     - "docs/features/<FEATURE_ID>/contract.yaml"
+    - ".specify/memory/constitution.md"
+    - "docs/adrs/"
+    - "docs/ai/implement-header.md"
+    - "docs/ai/implement-footer.md"
   copies_templates: []
   must_not_modify:
-    - ".specify/specs/<FEATURE_ID>.spec.md"
-    - "docs/features/<FEATURE_ID>/contract.yaml"
+    - "."
+    - ".git/"
+    - ".specify/"
+    - ".specify/specs/"
+    - "docs/"
+    - "docs/features/"
+    - "docs/adrs/"
+    - "docs/ai/"
 
 integrations:
-  tools: []
+  tools:
+    - name: "git"
+      purpose: "Detect repository presence and working-tree cleanliness."
+    - name: "serde_yaml (or similar)"
+      purpose: "Parse and validate `contract.yaml` metadata."
 
 git_safety:
-  require_clean_tree: false
+  require_clean_tree: true
   allow_untracked: true
-  rationale: "Command is read-only and does not modify the working tree."
+  rationale: "Avoid generating implementation prompts against uncommitted changes."
 
 verification:
   strategy: ["unit", "integration"]
@@ -130,19 +210,47 @@ verification:
     - id: "TC-001"
       requirement: "HLR-001"
       type: "integration"
-      description: "With valid spec and contract for F-001-bootstrap, `specdrive implement F-001-bootstrap` prints a structured prompt and exits 0."
+      description: "With git initialized, a clean tree, and valid spec/contract for F-001-bootstrap, `specdrive implement F-001-bootstrap` prints a structured, path-based prompt and exits 0."
     - id: "TC-002"
-      requirement: "LLR-002"
+      requirement: "HLR-002"
+      type: "integration"
+      description: "If `.git/` is missing, the command prints a clear error and exits with code 1."
+    - id: "TC-003"
+      requirement: "HLR-002"
+      type: "integration"
+      description: "If `.specify/` is missing, the command prints a clear error suggesting `specify init` and exits with code 1."
+    - id: "TC-004"
+      requirement: "LLR-003"
+      type: "integration"
+      description: "If the working tree is dirty, the command prints an error and exits with code 1 without printing the prompt."
+    - id: "TC-005"
+      requirement: "LLR-004"
       type: "integration"
       description: "If the spec file is missing, the command prints an error including the spec path and exits with code 2."
-    - id: "TC-003"
-      requirement: "LLR-002"
+    - id: "TC-006"
+      requirement: "LLR-004"
       type: "integration"
       description: "If the contract file is missing, the command prints an error including the contract path and exits with code 2."
-    - id: "TC-004"
-      requirement: "LLR-004"
+    - id: "TC-007"
+      requirement: "LLR-005"
+      type: "integration"
+      description: "If the contract YAML is invalid, the command prints an error including the path and exits with code 2."
+    - id: "TC-008"
+      requirement: "LLR-006"
+      type: "integration"
+      description: "If the contract is critical but review fields are empty, the command prints a clear error and exits with code 1."
+    - id: "TC-009"
+      requirement: "LLR-008"
+      type: "integration"
+      description: "If `docs/ai/implement-header.md` and/or `docs/ai/implement-footer.md` exist, their contents appear in the prompt in the correct positions."
+    - id: "TC-010"
+      requirement: "LLR-007"
       type: "unit"
-      description: "The command does not write to the filesystem (no new or modified files after running)."
+      description: "The generated prompt lists paths and guardrails but does not inline spec/contract contents."
+    - id: "TC-011"
+      requirement: "HLR-005"
+      type: "unit"
+      description: "Running the command does not create, modify, or delete any files (filesystem diff is empty)."
   coverage_expectations:
     code: "statement"
     notes: "Exercise success path and all defined error conditions."
@@ -150,16 +258,17 @@ verification:
 reviews:
   required: true
   checklist:
-    - "Spec and contract agree on behavior, paths, and exit codes."
-    - "Invariants (read-only, no network) are enforced in code."
-    - "File paths and exit codes match the CLI description."
+    - "Spec and contract agree on behaviour, paths, and exit codes."
+    - "Invariants (read-only, no network, no inlined spec/contract contents) are enforced in code."
+    - "Git safety and helper usage are implemented as described."
   status:
     reviewed_by: ""
     reviewed_at: ""
 
 ai_instructions:
   - "Treat this contract as the source of truth for the `specdrive implement` command."
-  - "Do not modify specs or contracts from this command; it must be read-only."
-  - "Ensure error messages include the relevant file paths."
-  - "Do not add any network calls or external dependencies."
+  - "Do not inline the contents of spec or contract into the generated prompt; list file paths instead."
+  - "Instruct the AI user to open and read the listed files from disk before coding."
+  - "Do not add network calls or new dependencies beyond a single YAML parsing crate."
+  - "Use the shared helper for repo/specify/git checks rather than duplicating logic."
   - "Prefer small, clear functions and explicit error handling."
