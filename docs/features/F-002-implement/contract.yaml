@@ -9,10 +9,11 @@ metadata:
 summary: |
   Add a `specdrive implement <FEATURE_ID>` command that validates the repo
   state (git, Spec Kit, clean working tree, spec/contract presence and
-  contract YAML validity), then prints a deterministic, AI-ready prompt to
-  stdout. The prompt lists the relevant file paths and instructs the AI to
-  read those files from disk; it does NOT inline the spec or contract
-  contents. The command is strictly read-only and makes no network calls.
+  contract YAML validity, and readability of key supporting docs), then
+  prints a deterministic, AI-ready prompt to stdout. The prompt lists the
+  relevant file paths and instructs the AI to read those files from disk;
+  it does NOT inline the spec or contract contents. The command is strictly
+  read-only and makes no network calls.
 
 scope:
   product: "specdrive"
@@ -32,6 +33,8 @@ requirements:
       text: "For critical features, the command must enforce a review gate before allowing prompt generation."
     - id: "HLR-005"
       text: "The command must be strictly read-only: it must not create, modify, or delete any files."
+    - id: "HLR-006"
+      text: "The command must surface key supporting docs (constitution, system overview, ADRs) to the AI by validating their readability and listing their paths when present."
   low_level:
     - id: "LLR-001"
       parent: "HLR-002"
@@ -52,20 +55,26 @@ requirements:
       parent: "HLR-004"
       text: "If `metadata.critical` is true, require non-empty `reviews.status.reviewed_by` and `reviews.status.reviewed_at`; otherwise print a clear error and exit with code 1."
     - id: "LLR-007"
-      parent: "HLR-001"
-      text: "Construct a deterministic prompt that lists the key file paths (spec, contract, constitution, ADRs) and instructs the AI to read them, without inlining their contents."
+      parent: "HLR-006"
+      text: "If `.specify/memory/constitution.md` exists, read it as UTF-8; on failure, print an error including the path and exit with code 2."
     - id: "LLR-008"
-      parent: "HLR-001"
-      text: "If `docs/ai/implement-header.md` and/or `docs/ai/implement-footer.md` exist, include their contents at the top and bottom of the prompt respectively."
+      parent: "HLR-006"
+      text: "If `docs/system-overview.md` exists, read it as UTF-8; on failure, print an error including the path and exit with code 2."
     - id: "LLR-009"
-      parent: "HLR-005"
-      text: "The command must not create, modify, or delete any files."
+      parent: "HLR-006"
+      text: "If `docs/adrs/` exists, enumerate ADR files (e.g. `*.md`), attempt to read each as UTF-8, and collect their paths for the prompt; if any read fails, print an error including the path and exit with code 2."
     - id: "LLR-010"
       parent: "HLR-001"
-      text: "Given FEATURE_ID, resolve `.specify/specs/<FEATURE_ID>.spec.md` and `docs/features/<FEATURE_ID>/contract.yaml`."
+      text: "Construct a deterministic prompt that lists key file paths (spec, contract, constitution, system overview, ADRs) and instructs the AI to read them, without inlining their contents."
     - id: "LLR-011"
       parent: "HLR-001"
-      text: "If either the spec or contract file is missing, treat FEATURE_ID as unknown, print a clear error including the path, and exit with code 2."
+      text: "If `docs/ai/implement-header.md` and/or `docs/ai/implement-footer.md` exist, include their contents at the top and bottom of the prompt respectively."
+    - id: "LLR-012"
+      parent: "HLR-005"
+      text: "The command must not create, modify, or delete any files."
+    - id: "LLR-013"
+      parent: "HLR-001"
+      text: "Given FEATURE_ID, resolve `.specify/specs/<FEATURE_ID>.spec.md` and `docs/features/<FEATURE_ID>/contract.yaml`; if either is missing, treat FEATURE_ID as unknown, print a clear error including the path, and exit with code 2."
 
 assumptions:
   - id: "A-001"
@@ -76,6 +85,8 @@ assumptions:
     text: "The repo uses the standard specdrive layout: `.specify/specs/` and `docs/features/`."
   - id: "A-004"
     text: "If present, ADRs live under `docs/adrs/` and the constitution lives at `.specify/memory/constitution.md`."
+  - id: "A-005"
+    text: "If present, a system overview document lives at `docs/system-overview.md`."
 
 preconditions:
   - id: "P-001"
@@ -85,18 +96,18 @@ preconditions:
 
 impact:
   security:
-    confidentiality: "low"  # may expose local spec/contract contents to AI via copy-paste of file paths
+    confidentiality: "low"
     integrity: "low"
     availability: "low"
     rationale: "Command only reads local files and git state; it does not modify code or production systems."
   privacy:
     pii_involved: false
-    rationale: "Specs, contracts, and ADRs should not contain PII."
+    rationale: "Specs, contracts, ADRs, and system overview docs should not contain PII."
 
 architecture:
   related_docs:
-    - "docs/system-overview.md"      # optional
-    - "docs/adrs/"                   # ADRs scanned by AI, not by specdrive
+    - "docs/system-overview.md"
+    - "docs/adrs/"
   constraints:
     - "No network calls."
     - "No file modifications."
@@ -112,15 +123,15 @@ cli:
   flags: []
   description: >
     Validate repo and Spec Kit state, then print a deterministic AI prompt
-    that lists relevant spec/contract/constitution/ADR file paths and
-    guardrails for implementing <FEATURE_ID>.
+    that lists relevant spec/contract/constitution/system-overview/ADR file
+    paths and guardrails for implementing <FEATURE_ID>.
   exit_codes:
     - code: 0
       meaning: "Success."
     - code: 1
       meaning: "Usage or precondition failure (missing FEATURE_ID, not a git repo, `.specify/` missing, dirty tree, critical feature not reviewed, etc.)."
     - code: 2
-      meaning: "Filesystem or parsing error (missing/unreadable spec/contract, invalid YAML)."
+      meaning: "Filesystem or parsing error (missing/unreadable spec/contract, invalid YAML, unreadable supporting docs)."
 
 behaviour:
   steps:
@@ -133,8 +144,11 @@ behaviour:
     - "Read the contract file as UTF-8 text."
     - "Parse the contract YAML; if parsing fails, print a clear error including the path and exit with code 2."
     - "Inspect `metadata.critical`; if true, check `reviews.status.reviewed_by` and `reviews.status.reviewed_at` are non-empty; if not, print an error and exit with code 1."
+    - "If `.specify/memory/constitution.md` exists, read it as UTF-8; on failure, print an error including the path and exit with code 2."
+    - "If `docs/system-overview.md` exists, read it as UTF-8; on failure, print an error including the path and exit with code 2."
+    - "If `docs/adrs/` exists, enumerate ADR files (e.g. `*.md`), attempt to read each as UTF-8; on any failure, print an error including the path and exit with code 2; collect ADR file paths for the prompt."
     - "Optionally read `docs/ai/implement-header.md` and `docs/ai/implement-footer.md` if they exist."
-    - "Construct a prompt that includes: optional header; a built-in intro; a list of files the AI must read; built-in guardrails; optional footer."
+    - "Construct a prompt that includes: optional header; a built-in intro; a list of files the AI must read (spec, contract, constitution, system overview, ADRs); built-in guardrails; optional footer."
     - "Print the prompt to stdout only."
     - "Exit with code 0 on success."
 
@@ -166,6 +180,9 @@ logic:
     - code: "CONTRACT_YAML_INVALID"
       description: "Contract YAML cannot be parsed."
       effect: "Print an error including the path and exit with code 2."
+    - code: "SUPPORT_DOC_READ_ERROR"
+      description: "A supporting doc (constitution, system overview, or ADR) exists but cannot be read."
+      effect: "Print an error including the path and exit with code 2."
     - code: "CRITICAL_NOT_REVIEWED"
       description: "Contract is marked critical but review fields are missing or empty."
       effect: "Print an error and exit with code 1."
@@ -178,6 +195,7 @@ filesystem:
     - ".specify/specs/<FEATURE_ID>.spec.md"
     - "docs/features/<FEATURE_ID>/contract.yaml"
     - ".specify/memory/constitution.md"
+    - "docs/system-overview.md"
     - "docs/adrs/"
     - "docs/ai/implement-header.md"
     - "docs/ai/implement-footer.md"
@@ -240,14 +258,26 @@ verification:
       type: "integration"
       description: "If the contract is critical but review fields are empty, the command prints a clear error and exits with code 1."
     - id: "TC-009"
+      requirement: "LLR-007"
+      type: "integration"
+      description: "If constitution exists but cannot be read, the command prints an error including the path and exits with code 2."
+    - id: "TC-010"
       requirement: "LLR-008"
       type: "integration"
+      description: "If system overview exists but cannot be read, the command prints an error including the path and exits with code 2."
+    - id: "TC-011"
+      requirement: "LLR-009"
+      type: "integration"
+      description: "If any ADR file exists but cannot be read, the command prints an error including the path and exits with code 2."
+    - id: "TC-012"
+      requirement: "LLR-011"
+      type: "integration"
       description: "If `docs/ai/implement-header.md` and/or `docs/ai/implement-footer.md` exist, their contents appear in the prompt in the correct positions."
-    - id: "TC-010"
-      requirement: "LLR-007"
+    - id: "TC-013"
+      requirement: "LLR-010"
       type: "unit"
       description: "The generated prompt lists paths and guardrails but does not inline spec/contract contents."
-    - id: "TC-011"
+    - id: "TC-014"
       requirement: "HLR-005"
       type: "unit"
       description: "Running the command does not create, modify, or delete any files (filesystem diff is empty)."
@@ -261,6 +291,7 @@ reviews:
     - "Spec and contract agree on behaviour, paths, and exit codes."
     - "Invariants (read-only, no network, no inlined spec/contract contents) are enforced in code."
     - "Git safety and helper usage are implemented as described."
+    - "Supporting docs (constitution, system overview, ADRs) are handled defensively."
   status:
     reviewed_by: ""
     reviewed_at: ""
