@@ -256,8 +256,8 @@ reviews:
     - "Invariants (read-only, no network, no inlined contents) are enforced in code."
     - "Shared helper usage (`ensure_repo_and_specify_ready()`) matches F-002."
   status:
-    reviewed_by: ""
-    reviewed_at: ""
+    reviewed_by: "three-seat"
+    reviewed_at: "1-1-2026"
 
 ai_instructions:
   - "Treat this contract as the source of truth for the `specdrive draft` command."
