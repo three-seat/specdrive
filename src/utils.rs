@@ -14,7 +14,10 @@ pub fn ensure_repo_and_specify_ready() -> Result<()> {
 
     // 2. Check .specify/ exists
     if !Path::new(".specify").exists() {
-        return Err("Spec Kit not initialized: .specify/ directory not found. Run 'specify init' first.".into());
+        return Err(
+            "Spec Kit not initialized: .specify/ directory not found. Run 'specify init' first."
+                .into(),
+        );
     }
 
     // 3. Ensure git working tree is clean (allow untracked files per contract)

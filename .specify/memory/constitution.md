@@ -43,6 +43,19 @@ Human responsibilities:
   - Be easy to revert via git.
 - No network calls from specdrive in v0.1; it operates on **local files only**.
 
+#### Defensive helpers (NON-NEGOTIABLE FOR CLI FLOWS)
+
+- Shared defensive helpers must be used instead of ad-hoc checks.
+- `utils::ensure_repo_and_specify_ready()` is the canonical preflight for “spec-aware” commands:
+  - Verifies we are in a git repo (`.git/` exists).
+  - Verifies Spec Kit is initialized (`.specify/` exists).
+  - Verifies the working tree is clean according to `git_safety`.
+- Commands that depend on repo/spec state **must** call this helper (or its future equivalent), including:
+  - `bootstrap` (once refactored in F-004),
+  - `implement`,
+  - `draft`,
+  - and any future commands that read or write specs/contracts.
+
 ## Development Workflow
 
 ### Feature Flow

@@ -13,10 +13,7 @@ pub struct ImplementError {
 
 impl ImplementError {
     fn new(message: String, exit_code: i32) -> Self {
-        Self {
-            message,
-            exit_code,
-        }
+        Self { message, exit_code }
     }
 
     pub fn exit_code(&self) -> i32 {
@@ -90,7 +87,11 @@ fn implement_feature_inner(feature_id: &str) -> std::result::Result<(), Implemen
     // 4. Read and parse contract YAML
     let contract_text = fs::read_to_string(&contract_path).map_err(|e| {
         ImplementError::new(
-            format!("failed to read contract file {}: {}", contract_path.display(), e),
+            format!(
+                "failed to read contract file {}: {}",
+                contract_path.display(),
+                e
+            ),
             2,
         )
     })?;
@@ -172,7 +173,11 @@ fn implement_feature_inner(feature_id: &str) -> std::result::Result<(), Implemen
     if adrs_dir.exists() && adrs_dir.is_dir() {
         let entries = fs::read_dir(&adrs_dir).map_err(|e| {
             ImplementError::new(
-                format!("failed to read ADRs directory {}: {}", adrs_dir.display(), e),
+                format!(
+                    "failed to read ADRs directory {}: {}",
+                    adrs_dir.display(),
+                    e
+                ),
                 2,
             )
         })?;
@@ -308,7 +313,9 @@ fn build_prompt(
     prompt.push_str("- Do not modify spec, contract, ADRs, or constitution.\n");
     prompt.push_str("- Do not add dependencies beyond what the contract allows.\n");
     prompt.push_str("- Prefer small, focused functions with explicit error handling.\n");
-    prompt.push_str("- This CLI command is read-only: it must not create, modify, or delete files.\n");
+    prompt.push_str(
+        "- This CLI command is read-only: it must not create, modify, or delete files.\n",
+    );
 
     // Optional footer
     if let Some(f) = footer {

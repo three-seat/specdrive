@@ -1,0 +1,268 @@
+schema_version: 1
+
+metadata:
+  id: "F-003-draft"
+  title: "003 Draft command"
+  status: "draft"
+  critical: true
+
+summary: |
+  Add a `specdrive draft <FEATURE_ID>` command that validates repo state
+  (git, Spec Kit, clean working tree, presence of spec and contract skeleton
+  and contract templates), then prints a deterministic, AI-ready prompt to
+  stdout. The prompt lists the relevant file paths and instructs the AI to
+  read them and produce or refine `docs/features/<FEATURE_ID>/contract.yaml`.
+  The command is strictly read-only and does not inline file contents.
+
+scope:
+  product: "specdrive"
+  service: "specdrive-cli"
+  repo: "specdrive"
+  area: "cli"
+
+requirements:
+  high_level:
+    - id: "HLR-001"
+      text: "Provide a CLI command `specdrive draft <FEATURE_ID>` that generates an AI-ready prompt for drafting or refining a feature contract based on the spec and supporting docs."
+    - id: "HLR-002"
+      text: "The command must enforce basic preconditions: git repo, Spec Kit initialization, and clean working tree."
+    - id: "HLR-003"
+      text: "The command must validate that the feature spec and contract skeleton exist for the given FEATURE_ID."
+    - id: "HLR-004"
+      text: "The command must validate that the standard contract templates exist (minimal and critical) before generating the prompt."
+    - id: "HLR-005"
+      text: "The command must be strictly read-only: it must not create, modify, or delete any files."
+    - id: "HLR-006"
+      text: "The generated prompt must reference file paths only and must not inline the contents of the spec or contract."
+
+  low_level:
+    - id: "LLR-001"
+      parent: "HLR-002"
+      text: "Use the shared helper (e.g. `ensure_repo_and_specify_ready()`) to verify `.git/`, `.specify/`, and a clean working tree before proceeding."
+    - id: "LLR-002"
+      parent: "HLR-003"
+      text: "Resolve `.specify/specs/<FEATURE_ID>.spec.md` and `docs/features/<FEATURE_ID>/contract.yaml`; if either is missing, print a clear error including the path and exit with code 2."
+    - id: "LLR-003"
+      parent: "HLR-004"
+      text: "Check that `docs/templates/feature.contract.minimal.yaml` and `docs/templates/feature.contract.critical.yaml` both exist; if either is missing, print a clear error including the path and exit with a non-zero status."
+    - id: "LLR-004"
+      parent: "HLR-001"
+      text: "Detect optional supporting docs: `.specify/memory/constitution.md`, `docs/adrs/`, `docs/system-overview.md`, `docs/ai/draft-header.md`, and `docs/ai/draft-footer.md` if they exist."
+    - id: "LLR-005"
+      parent: "HLR-001"
+      text: "Construct a deterministic prompt that lists all relevant file paths (spec, contract skeleton, constitution, ADRs, system overview, templates) and instructs the AI to read them before drafting the contract."
+    - id: "LLR-006"
+      parent: "HLR-001"
+      text: "If `docs/ai/draft-header.md` and/or `docs/ai/draft-footer.md` exist, include their contents at the top and bottom of the prompt respectively."
+    - id: "LLR-007"
+      parent: "HLR-006"
+      text: "The prompt must not inline the contents of the spec or contract; it may reference file paths and high-level guidance only."
+    - id: "LLR-008"
+      parent: "HLR-005"
+      text: "The command must not create, modify, or delete any files in the filesystem."
+
+assumptions:
+  - id: "A-001"
+    text: "The current working directory is the root of a git repository."
+  - id: "A-002"
+    text: "Spec Kit has been initialized via `specify init`, creating `.specify/`."
+  - id: "A-003"
+    text: "The repo uses the standard specdrive layout: `.specify/specs/` and `docs/features/`."
+  - id: "A-004"
+    text: "`specdrive new-feature <FEATURE_ID> [--critical]` has already created `docs/features/<FEATURE_ID>/contract.yaml` for this feature."
+  - id: "A-005"
+    text: "Contract templates live at `docs/templates/feature.contract.minimal.yaml` and `docs/templates/feature.contract.critical.yaml`."
+
+preconditions:
+  - id: "P-001"
+    text: "FEATURE_ID is a non-empty string."
+  - id: "P-002"
+    text: "The command is run from the repository root."
+
+impact:
+  security:
+    confidentiality: "low"
+    integrity: "low"
+    availability: "low"
+    rationale: "Command only reads local files and git state; it does not modify code, contracts, or production systems."
+  privacy:
+    pii_involved: false
+    rationale: "Specs, contracts, ADRs, and templates should not contain PII."
+
+architecture:
+  related_docs:
+    - "docs/system-overview.md"
+    - "docs/adrs/"
+  constraints:
+    - "No network calls."
+    - "No file modifications."
+    - "Only read files under the current repo."
+  notes:
+    - "Reuses the shared helper introduced in F-002 (`ensure_repo_and_specify_ready()`) for git/Spec Kit checks."
+    - "Prompt is path-based and designed to be copy-pasteable into an AI tool."
+
+cli:
+  command: "draft"
+  args:
+    - "<FEATURE_ID>"
+  flags: []
+  description: >
+    Validate repo and Spec Kit state, ensure the feature spec, contract
+    skeleton, and contract templates exist, then print a deterministic AI
+    prompt that lists relevant paths and guidance for drafting or refining
+    `docs/features/<FEATURE_ID>/contract.yaml`.
+  exit_codes:
+    - code: 0
+      meaning: "Success."
+    - code: 1
+      meaning: "Usage or precondition failure (missing FEATURE_ID, not a git repo, `.specify/` missing, dirty tree, etc.)."
+    - code: 2
+      meaning: "Filesystem error (missing/unreadable spec, contract skeleton, or required templates)."
+
+behaviour:
+  steps:
+    - "Parse CLI args and extract FEATURE_ID."
+    - "If FEATURE_ID is empty or missing, print a usage error and exit with code 1."
+    - "Call `ensure_repo_and_specify_ready()` to verify `.git/` exists, `.specify/` exists, and the git working tree is clean; on failure, print a clear error and exit with code 1."
+    - "Resolve spec path: `.specify/specs/<FEATURE_ID>.spec.md`."
+    - "Resolve contract path: `docs/features/<FEATURE_ID>/contract.yaml`."
+    - "If the spec file is missing, print a clear error including the spec path and exit with code 2."
+    - "If the contract skeleton file is missing, print a clear error including the contract path and exit with code 2."
+    - "Check for required templates: `docs/templates/feature.contract.minimal.yaml` and `docs/templates/feature.contract.critical.yaml`; if either is missing, print a clear error including the path and exit with code 2."
+    - "Detect supporting docs if present: `.specify/memory/constitution.md`, `docs/adrs/`, `docs/system-overview.md`."
+    - "Optionally read `docs/ai/draft-header.md` and `docs/ai/draft-footer.md` if they exist."
+    - "Construct a prompt that includes: optional header; a built-in intro describing the drafting goal; a list of files the AI must read; guidance on mapping spec → contract sections; guardrails about invariants and safety; optional footer."
+    - "Print the prompt to stdout only."
+    - "Exit with code 0 on success."
+
+logic:
+  invariants:
+    - "The command must not create, modify, or delete any files."
+    - "The command must not make any network calls."
+    - "The generated prompt must not inline the contents of the spec or contract; it must reference file paths instead."
+    - "The prompt structure must be deterministic for a given repo state (spec, contract skeleton, templates, header/footer files)."
+  error_conditions:
+    - code: "NOT_GIT_REPO"
+      description: "`.git/` directory not found in the current working directory."
+      effect: "Print a clear error and exit with code 1."
+    - code: "NO_SPECIFY_DIR"
+      description: "`.specify/` directory not found; Spec Kit has not been initialized."
+      effect: "Print a clear error suggesting `specify init` and exit with code 1."
+    - code: "DIRTY_TREE"
+      description: "Git working tree is not clean when a clean tree is required."
+      effect: "Print a clear error and exit with code 1."
+    - code: "MISSING_SPEC"
+      description: "Spec file does not exist for the given FEATURE_ID."
+      effect: "Print an error including the spec path and exit with code 2."
+    - code: "MISSING_CONTRACT_SKELETON"
+      description: "Contract skeleton file does not exist for the given FEATURE_ID."
+      effect: "Print an error including the contract path and exit with code 2."
+    - code: "MISSING_TEMPLATE_MINIMAL"
+      description: "`docs/templates/feature.contract.minimal.yaml` does not exist."
+      effect: "Print an error including the template path and exit with code 2."
+    - code: "MISSING_TEMPLATE_CRITICAL"
+      description: "`docs/templates/feature.contract.critical.yaml` does not exist."
+      effect: "Print an error including the template path and exit with code 2."
+
+filesystem:
+  creates_paths: []
+  reads_paths:
+    - ".git/"
+    - ".specify/"
+    - ".specify/specs/<FEATURE_ID>.spec.md"
+    - "docs/features/<FEATURE_ID>/contract.yaml"
+    - ".specify/memory/constitution.md"
+    - "docs/adrs/"
+    - "docs/system-overview.md"
+    - "docs/templates/feature.contract.minimal.yaml"
+    - "docs/templates/feature.contract.critical.yaml"
+    - "docs/ai/draft-header.md"
+    - "docs/ai/draft-footer.md"
+  copies_templates: []
+  must_not_modify:
+    - "."
+    - ".git/"
+    - ".specify/"
+    - ".specify/specs/"
+    - "docs/"
+    - "docs/features/"
+    - "docs/adrs/"
+    - "docs/templates/"
+    - "docs/ai/"
+
+integrations:
+  tools:
+    - name: "git"
+      purpose: "Detect repository presence and working-tree cleanliness."
+  notes:
+    - "Reuses the same defensive patterns as F-002 (implement)."
+
+git_safety:
+  require_clean_tree: true
+  allow_untracked: true
+  rationale: "Avoid drafting contracts against uncommitted changes."
+
+verification:
+  strategy: ["unit", "integration"]
+  test_cases:
+    - id: "TC-001"
+      requirement: "HLR-001"
+      type: "integration"
+      description: "With git initialized, a clean tree, and existing spec/contract skeleton for F-001-bootstrap, `specdrive draft F-001-bootstrap` prints a structured, path-based prompt and exits 0."
+    - id: "TC-002"
+      requirement: "HLR-002"
+      type: "integration"
+      description: "If `.git/` is missing, the command prints a clear error and exits with code 1."
+    - id: "TC-003"
+      requirement: "HLR-002"
+      type: "integration"
+      description: "If `.specify/` is missing, the command prints a clear error suggesting `specify init` and exits with code 1."
+    - id: "TC-004"
+      requirement: "LLR-001"
+      type: "integration"
+      description: "If the working tree is dirty, the command prints an error and exits with code 1 without printing the prompt."
+    - id: "TC-005"
+      requirement: "LLR-002"
+      type: "integration"
+      description: "If the spec file is missing, the command prints an error including the spec path and exits with code 2."
+    - id: "TC-006"
+      requirement: "LLR-002"
+      type: "integration"
+      description: "If the contract skeleton file is missing, the command prints an error including the contract path and exits with code 2."
+    - id: "TC-007"
+      requirement: "LLR-003"
+      type: "integration"
+      description: "If either contract template file is missing, the command prints an error including the template path and exits with code 2."
+    - id: "TC-008"
+      requirement: "LLR-006"
+      type: "integration"
+      description: "If `docs/ai/draft-header.md` and/or `docs/ai/draft-footer.md` exist, their contents appear in the prompt in the correct positions."
+    - id: "TC-009"
+      requirement: "LLR-007"
+      type: "unit"
+      description: "The generated prompt lists paths and guidance but does not inline spec/contract contents."
+    - id: "TC-010"
+      requirement: "HLR-005"
+      type: "unit"
+      description: "Running the command does not create, modify, or delete any files (filesystem diff is empty)."
+  coverage_expectations:
+    code: "statement"
+    notes: "Exercise success path and all defined error conditions."
+
+reviews:
+  required: true
+  checklist:
+    - "Spec and contract agree on behaviour, paths, and exit codes."
+    - "Invariants (read-only, no network, no inlined contents) are enforced in code."
+    - "Shared helper usage (`ensure_repo_and_specify_ready()`) matches F-002."
+  status:
+    reviewed_by: ""
+    reviewed_at: ""
+
+ai_instructions:
+  - "Treat this contract as the source of truth for the `specdrive draft` command."
+  - "Do not inline the contents of spec or contract into the generated prompt; list file paths instead."
+  - "Instruct the AI user to open and read the listed files from disk before drafting or refining the contract."
+  - "Do not add network calls or any new dependencies for this feature."
+  - "Reuse the shared helper for repo/specify/git checks rather than duplicating logic."
+  - "Prefer small, clear functions and explicit error handling."
