@@ -23,12 +23,12 @@ Goal: you can drop specdrive into any git + Spec Kit repo and get a repeatable, 
 - **Spec (human-facing)**
   - Location: `.specify/specs/<FEATURE_ID>.spec.md`
   - Markdown with front matter + prose.
-  - Explains behaviour, context, acceptance criteria, implementation notes.
+  - Explains behavior, context, acceptance criteria, implementation notes.
 
 - **Contract (machine-ish)**
   - Location: `docs/features/<FEATURE_ID>/contract.yaml`
   - Structured YAML:
-    - `metadata`, `requirements`, `behaviour`, `logic`, `filesystem`, `git_safety`, `verification`, `ai_instructions`, etc.
+    - `metadata`, `requirements`, `behavior`, `logic`, `filesystem`, `git_safety`, `verification`, `ai_instructions`, etc.
   - Acts as the **source of truth** for implementation and tests.
 
 - **Constitution**
@@ -82,7 +82,7 @@ Key paths specdrive expects:
 - Preconditions:
   - `.git/` exists.
   - `.specify/` exists (from `specify init`).
-- Behaviour:
+- Behavior:
   - Ensures `.specify/specs/` exists.
   - Installs:
     - `.specify/templates/feature.spec.md` (if missing).
@@ -111,7 +111,7 @@ Key paths specdrive expects:
   - `.specify/` exists.
   - Working tree is clean (uncommitted changes cause a fail-fast).
 
-- Behaviour:
+- Behavior:
   - Resolves and validates:
     - `.specify/specs/<FEATURE_ID>.spec.md`
     - `docs/features/<FEATURE_ID>/contract.yaml`

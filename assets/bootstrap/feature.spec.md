@@ -27,7 +27,7 @@ One paragraph: what are we building and why.
 - Outputs:
 - Error cases:
 
-## Detailed behaviour
+## Detailed behavior
 - Bullet list of steps, in order.
 
 # Non-Functional Requirements

@@ -56,7 +56,7 @@ As with `implement`, the prompt **does not embed file contents**; it references 
        - `docs/templates/feature.contract.minimal.yaml` and/or `docs/templates/feature.contract.critical.yaml`
     4. Guidance on how to shape the contract:
        - Use the appropriate template (minimal vs critical).
-       - Fill in `requirements`, `behaviour`, `logic`, `filesystem`, `git_safety`, `verification`, etc., based on the spec + ADRs.
+       - Fill in `requirements`, `behavior`, `logic`, `filesystem`, `git_safety`, `verification`, etc., based on the spec + ADRs.
        - Do not weaken invariants or relax safety properties.
     5. Optional configurable footer text (if `docs/ai/draft-footer.md` exists).
 - Error cases:
@@ -100,7 +100,7 @@ As with `implement`, the prompt **does not embed file contents**; it references 
   1. Optional header from `docs/ai/draft-header.md` (if present).
   2. Built-in intro line:
      - You are drafting/refining `docs/features/<FEATURE_ID>/contract.yaml` for `<FEATURE_ID>`.
-     - Spec + ADRs + constitution + system overview define the behaviour & constraints.
+     - Spec + ADRs + constitution + system overview define the behavior & constraints.
      - Use the appropriate contract template (minimal vs critical).
   3. A section listing files to read, e.g.:
 
@@ -116,7 +116,7 @@ As with `implement`, the prompt **does not embed file contents**; it references 
      ```
 
   4. Guidance section:
-     - How to map spec → `requirements`, `behaviour`, `logic`, `filesystem`, `git_safety`, `verification`, `ai_instructions`.
+     - How to map spec → `requirements`, `behavior`, `logic`, `filesystem`, `git_safety`, `verification`, `ai_instructions`.
      - For critical features:
        - Ensure `critical: true` and stronger invariants / git safety.
        - Add appropriate review expectations.

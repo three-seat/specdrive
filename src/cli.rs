@@ -1,5 +1,6 @@
 use crate::Result;
 use crate::bootstrap;
+use crate::draft;
 use crate::feature;
 use crate::implement;
 
@@ -34,6 +35,13 @@ pub fn run() -> Result<()> {
             // Per F-002 contract: implement exits with specific codes (0, 1, or 2)
             implement::implement_feature(&feature_id)
         }
+        "draft" => {
+            let Some(feature_id) = args.next() else {
+                return Err("draft requires <FEATURE_ID>".into());
+            };
+            // Per F-003 contract: draft exits with specific codes (0, 1, or 2)
+            draft::draft_feature(&feature_id)
+        }
         "help" | "-h" | "--help" => {
             print_usage();
             Ok(())
@@ -52,5 +60,6 @@ fn print_usage() {
     eprintln!("  specdrive bootstrap");
     eprintln!("  specdrive new-feature <FEATURE_ID> [--critical]");
     eprintln!("  specdrive implement <FEATURE_ID>");
+    eprintln!("  specdrive draft <FEATURE_ID>");
     eprintln!("  specdrive help");
 }

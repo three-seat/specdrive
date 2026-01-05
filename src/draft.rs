@@ -4,14 +4,14 @@ use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Custom error type for the implement command with exit codes
+/// Custom error type for the draft command with exit codes
 #[derive(Debug)]
-pub struct ImplementError {
+pub struct DraftError {
     message: String,
     exit_code: i32,
 }
 
-impl ImplementError {
+impl DraftError {
     fn new(message: String, exit_code: i32) -> Self {
         Self { message, exit_code }
     }
@@ -21,18 +21,18 @@ impl ImplementError {
     }
 }
 
-impl fmt::Display for ImplementError {
+impl fmt::Display for DraftError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.message)
     }
 }
 
-impl std::error::Error for ImplementError {}
+impl std::error::Error for DraftError {}
 
-/// Main entry point for the implement command
-pub fn implement_feature(feature_id: &str) -> Result<()> {
-    // Convert all errors to ImplementError to get proper exit codes
-    match implement_feature_inner(feature_id) {
+/// Main entry point for the draft command
+pub fn draft_feature(feature_id: &str) -> Result<()> {
+    // Convert all errors to DraftError to get proper exit codes
+    match draft_feature_inner(feature_id) {
         Ok(()) => Ok(()),
         Err(e) => {
             let err: Box<dyn std::error::Error + Send + Sync> = Box::new(e);
@@ -41,17 +41,17 @@ pub fn implement_feature(feature_id: &str) -> Result<()> {
     }
 }
 
-fn implement_feature_inner(feature_id: &str) -> std::result::Result<(), ImplementError> {
+fn draft_feature_inner(feature_id: &str) -> std::result::Result<(), DraftError> {
     // 1. Validate feature_id is non-empty
     if feature_id.trim().is_empty() {
-        return Err(ImplementError::new(
+        return Err(DraftError::new(
             "FEATURE_ID cannot be empty".to_string(),
             1,
         ));
     }
 
     // 2. Preflight checks: git repo, .specify/, clean tree
-    utils::ensure_repo_and_specify_ready().map_err(|e| ImplementError::new(e.to_string(), 1))?;
+    utils::ensure_repo_and_specify_ready().map_err(|e| DraftError::new(e.to_string(), 1))?;
 
     // 3. Resolve and validate spec and contract paths
     let spec_path = PathBuf::from(".specify")
@@ -63,7 +63,7 @@ fn implement_feature_inner(feature_id: &str) -> std::result::Result<(), Implemen
         .join("contract.yaml");
 
     if !spec_path.exists() {
-        return Err(ImplementError::new(
+        return Err(DraftError::new(
             format!(
                 "spec file not found: {}. Feature {} does not exist.",
                 spec_path.display(),
@@ -74,9 +74,9 @@ fn implement_feature_inner(feature_id: &str) -> std::result::Result<(), Implemen
     }
 
     if !contract_path.exists() {
-        return Err(ImplementError::new(
+        return Err(DraftError::new(
             format!(
-                "contract file not found: {}. Feature {} does not exist.",
+                "contract skeleton file not found: {}. Feature {} does not exist.",
                 contract_path.display(),
                 feature_id
             ),
@@ -84,66 +84,35 @@ fn implement_feature_inner(feature_id: &str) -> std::result::Result<(), Implemen
         ));
     }
 
-    // 4. Read and parse contract YAML
-    let contract_text = fs::read_to_string(&contract_path).map_err(|e| {
-        ImplementError::new(
+    // 4. Validate required template files exist
+    let minimal_template_path = PathBuf::from("docs/templates/feature.contract.minimal.yaml");
+    let critical_template_path = PathBuf::from("docs/templates/feature.contract.critical.yaml");
+
+    if !minimal_template_path.exists() {
+        return Err(DraftError::new(
             format!(
-                "failed to read contract file {}: {}",
-                contract_path.display(),
-                e
+                "required template not found: {}. Run 'specdrive bootstrap' first.",
+                minimal_template_path.display()
             ),
             2,
-        )
-    })?;
-
-    let contract: serde_yaml::Value = serde_yaml::from_str(&contract_text).map_err(|e| {
-        ImplementError::new(
-            format!(
-                "failed to parse contract YAML {}: {}",
-                contract_path.display(),
-                e
-            ),
-            2,
-        )
-    })?;
-
-    // 5. Check critical feature review gate
-    if let Some(metadata) = contract.get("metadata") {
-        if let Some(critical) = metadata.get("critical") {
-            if critical.as_bool().unwrap_or(false) {
-                // This is a critical feature - check review status
-                let reviewed_by = contract
-                    .get("reviews")
-                    .and_then(|r| r.get("status"))
-                    .and_then(|s| s.get("reviewed_by"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-
-                let reviewed_at = contract
-                    .get("reviews")
-                    .and_then(|r| r.get("status"))
-                    .and_then(|s| s.get("reviewed_at"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-
-                if reviewed_by.is_empty() || reviewed_at.is_empty() {
-                    return Err(ImplementError::new(
-                        format!(
-                            "critical feature {} has not been reviewed: reviews.status.reviewed_by and reviews.status.reviewed_at must be populated",
-                            feature_id
-                        ),
-                        1,
-                    ));
-                }
-            }
-        }
+        ));
     }
 
-    // 6. Validate supporting docs (constitution, system overview, ADRs)
+    if !critical_template_path.exists() {
+        return Err(DraftError::new(
+            format!(
+                "required template not found: {}. Run 'specdrive bootstrap' first.",
+                critical_template_path.display()
+            ),
+            2,
+        ));
+    }
+
+    // 5. Detect optional supporting docs
     let constitution_path = PathBuf::from(".specify/memory/constitution.md");
     if constitution_path.exists() {
         fs::read_to_string(&constitution_path).map_err(|e| {
-            ImplementError::new(
+            DraftError::new(
                 format!(
                     "failed to read constitution file {}: {}",
                     constitution_path.display(),
@@ -157,7 +126,7 @@ fn implement_feature_inner(feature_id: &str) -> std::result::Result<(), Implemen
     let system_overview_path = PathBuf::from("docs/system-overview.md");
     if system_overview_path.exists() {
         fs::read_to_string(&system_overview_path).map_err(|e| {
-            ImplementError::new(
+            DraftError::new(
                 format!(
                     "failed to read system overview file {}: {}",
                     system_overview_path.display(),
@@ -172,7 +141,7 @@ fn implement_feature_inner(feature_id: &str) -> std::result::Result<(), Implemen
     let mut adr_files = Vec::new();
     if adrs_dir.exists() && adrs_dir.is_dir() {
         let entries = fs::read_dir(&adrs_dir).map_err(|e| {
-            ImplementError::new(
+            DraftError::new(
                 format!(
                     "failed to read ADRs directory {}: {}",
                     adrs_dir.display(),
@@ -184,7 +153,7 @@ fn implement_feature_inner(feature_id: &str) -> std::result::Result<(), Implemen
 
         for entry in entries {
             let entry = entry.map_err(|e| {
-                ImplementError::new(
+                DraftError::new(
                     format!("failed to read ADR entry in {}: {}", adrs_dir.display(), e),
                     2,
                 )
@@ -193,7 +162,7 @@ fn implement_feature_inner(feature_id: &str) -> std::result::Result<(), Implemen
             if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("md") {
                 // Validate we can read it
                 fs::read_to_string(&path).map_err(|e| {
-                    ImplementError::new(
+                    DraftError::new(
                         format!("failed to read ADR file {}: {}", path.display(), e),
                         2,
                     )
@@ -203,11 +172,11 @@ fn implement_feature_inner(feature_id: &str) -> std::result::Result<(), Implemen
         }
     }
 
-    // 7. Read optional header and footer
-    let header_path = PathBuf::from("docs/ai/implement-header.md");
+    // 6. Read optional header and footer
+    let header_path = PathBuf::from("docs/ai/draft-header.md");
     let header = if header_path.exists() {
         Some(fs::read_to_string(&header_path).map_err(|e| {
-            ImplementError::new(
+            DraftError::new(
                 format!(
                     "failed to read header file {}: {}",
                     header_path.display(),
@@ -220,10 +189,10 @@ fn implement_feature_inner(feature_id: &str) -> std::result::Result<(), Implemen
         None
     };
 
-    let footer_path = PathBuf::from("docs/ai/implement-footer.md");
+    let footer_path = PathBuf::from("docs/ai/draft-footer.md");
     let footer = if footer_path.exists() {
         Some(fs::read_to_string(&footer_path).map_err(|e| {
-            ImplementError::new(
+            DraftError::new(
                 format!(
                     "failed to read footer file {}: {}",
                     footer_path.display(),
@@ -236,13 +205,15 @@ fn implement_feature_inner(feature_id: &str) -> std::result::Result<(), Implemen
         None
     };
 
-    // 8. Build and print the prompt
-    let prompt = build_prompt(
+    // 7. Build and print the prompt
+    let prompt = build_draft_prompt(
         feature_id,
         &spec_path,
         &contract_path,
         &constitution_path,
         &system_overview_path,
+        &minimal_template_path,
+        &critical_template_path,
         &adr_files,
         header.as_deref(),
         footer.as_deref(),
@@ -253,12 +224,14 @@ fn implement_feature_inner(feature_id: &str) -> std::result::Result<(), Implemen
     Ok(())
 }
 
-fn build_prompt(
+fn build_draft_prompt(
     feature_id: &str,
     spec_path: &Path,
     contract_path: &Path,
     constitution_path: &Path,
     system_overview_path: &Path,
+    minimal_template_path: &Path,
+    critical_template_path: &Path,
     adr_files: &[PathBuf],
     header: Option<&str>,
     footer: Option<&str>,
@@ -276,24 +249,25 @@ fn build_prompt(
 
     // Built-in intro
     prompt.push_str(&format!(
-        "You are implementing feature {} in this repository.\n\n",
+        "You are drafting/refining the contract {} for feature {}.\n\n",
+        contract_path.display(),
         feature_id
     ));
     prompt.push_str(
-        "The spec and contract are the source of truth. Do NOT modify them unless explicitly instructed.\n\n",
+        "The spec, ADRs, constitution, and system overview define the behaviour and constraints.\n",
     );
+    prompt.push_str("Use the appropriate contract template (minimal vs critical).\n\n");
 
     // Files to read
-    prompt.push_str("Files you MUST read before coding:\n");
-    prompt.push_str(&format!("- {}\n", spec_path.display()));
-    prompt.push_str(&format!("- {}\n", contract_path.display()));
+    prompt.push_str("Files you MUST read before drafting the contract:\n");
+    prompt.push_str(&format!("- {} (feature spec)\n", spec_path.display()));
+    prompt.push_str(&format!(
+        "- {} (current or skeleton)\n",
+        contract_path.display()
+    ));
 
     if constitution_path.exists() {
         prompt.push_str(&format!("- {}\n", constitution_path.display()));
-    }
-
-    if system_overview_path.exists() {
-        prompt.push_str(&format!("- {}\n", system_overview_path.display()));
     }
 
     if !adr_files.is_empty() {
@@ -303,19 +277,43 @@ fn build_prompt(
         }
     }
 
+    if system_overview_path.exists() {
+        prompt.push_str(&format!("- {}\n", system_overview_path.display()));
+    }
+
+    prompt.push_str(&format!(
+        "- {} (minimal template)\n",
+        minimal_template_path.display()
+    ));
+    prompt.push_str(&format!(
+        "- {} (critical template)\n",
+        critical_template_path.display()
+    ));
+
     prompt.push('\n');
 
-    // Built-in guardrails
+    // Guidance section
+    prompt.push_str("Guidance for drafting the contract:\n");
+    prompt.push_str("- Map the spec's behavior, context, and acceptance criteria to the contract sections:\n");
+    prompt.push_str("  - requirements (high_level and low_level)\n");
+    prompt.push_str("  - behavior (steps)\n");
+    prompt.push_str("  - logic (invariants, error_conditions)\n");
+    prompt.push_str("  - filesystem (creates_paths, reads_paths, must_not_modify)\n");
+    prompt.push_str("  - git_safety (require_clean_tree, allow_untracked)\n");
+    prompt.push_str("  - verification (test_cases)\n");
+    prompt.push_str("  - ai_instructions\n");
+    prompt.push_str("- For critical features:\n");
+    prompt.push_str("  - Ensure metadata.critical: true\n");
+    prompt.push_str("  - Add stronger invariants and git safety requirements\n");
+    prompt.push_str("  - Add appropriate review expectations in reviews section\n");
+    prompt.push('\n');
+
+    // Guardrails
     prompt.push_str("Guardrails:\n");
-    prompt.push_str(
-        "- Follow all behavior, invariants, and filesystem/git rules from the contract.\n",
-    );
-    prompt.push_str("- Do not modify spec, contract, ADRs, or constitution.\n");
-    prompt.push_str("- Do not add dependencies beyond what the contract allows.\n");
-    prompt.push_str("- Prefer small, focused functions with explicit error handling.\n");
-    prompt.push_str(
-        "- This CLI command is read-only: it must not create, modify, or delete files.\n",
-    );
+    prompt.push_str("- Do NOT weaken invariants or lower safety properties\n");
+    prompt.push_str("- Do NOT change feature IDs or basic layout\n");
+    prompt.push_str("- Keep the contract structured and consistent with existing examples\n");
+    prompt.push_str("- Follow the contract template structure (minimal or critical as appropriate)\n");
 
     // Optional footer
     if let Some(f) = footer {
