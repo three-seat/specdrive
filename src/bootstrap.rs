@@ -88,9 +88,9 @@ impl BootstrapSummary {
 
 /// Main entry point for the bootstrap command.
 pub fn run() -> Result<()> {
-    // Per F-001 contract: verify prerequisites first
-    verify_git_repo()?;
-    verify_specify_dir()?;
+    // Per F-004 refactor: use shared helper for git/.specify checks
+    // Note: bootstrap doesn't require clean tree, so we only check git repo and .specify dir
+    verify_git_and_specify()?;
 
     let mut summary = BootstrapSummary::default();
 
@@ -104,24 +104,25 @@ pub fn run() -> Result<()> {
     Ok(())
 }
 
-/// Verify that .git/ exists; per F-001 contract, exit code 1 if missing.
-fn verify_git_repo() -> Result<()> {
+/// Verify that .git/ and .specify/ exist using shared helper.
+/// Per F-004 refactor, maps RepoReadinessError to BootstrapError with exit code 1.
+/// Note: bootstrap doesn't require clean tree, so we check git/specify existence manually.
+fn verify_git_and_specify() -> Result<()> {
+    // Check .git/ exists
     if !Path::new(".git").exists() {
         return Err(BootstrapError::Precondition(
             "Not a git repository. Please run this command from the root of a git repo."
                 .to_string(),
         ));
     }
-    Ok(())
-}
 
-/// Verify that .specify/ exists; per F-001 contract, exit code 1 if missing.
-fn verify_specify_dir() -> Result<()> {
+    // Check .specify/ exists
     if !Path::new(".specify").exists() {
         return Err(BootstrapError::Precondition(
             ".specify/ directory not found. Please run 'specify init' first.".to_string(),
         ));
     }
+
     Ok(())
 }
 

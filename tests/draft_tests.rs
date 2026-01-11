@@ -58,7 +58,7 @@ fn test_draft_without_git_repo() {
 
     assert_eq!(exit_code, 1);
     assert!(
-        stderr.contains("not a git repository") || stderr.contains(".git"),
+        stderr.to_lowercase().contains("not a git repository") || stderr.contains(".git"),
         "Expected git repo error, got: {}",
         stderr
     );

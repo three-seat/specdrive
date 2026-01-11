@@ -1,0 +1,153 @@
+schema_version: 1
+
+metadata:
+  id: "F-004-refactor"
+  title: "004 Shared helper refactor"
+  status: "draft"
+
+summary: |
+  Refactor repo/Spec Kit/feature-path logic into shared utilities (src/utils.rs, src/fsutil.rs)
+  so commands can consistently enforce preconditions and build prompts. No behavior change for
+  existing commands (bootstrap, implement, draft); internal-only refactor to improve safety,
+  clarity, and reuse.
+
+scope:
+  product: "specdrive"
+  service: "specdrive-cli"
+  repo: "specdrive"
+  area: "core"
+
+requirements:
+  high_level:
+    - "Centralize repo/Spec Kit/clean-tree checks into a single canonical helper"
+    - "Provide structured error types for all failure modes (not ad-hoc strings)"
+    - "Extract feature-path and template-path resolution into reusable helpers"
+    - "Provide optional-docs discovery helpers for constitution, system overview, and ADRs"
+    - "Ensure all existing command behavior (inputs, outputs, exit codes, error messages) remains unchanged"
+  low_level:
+    - "Implement utils::ensure_repo_and_specify_ready() as the canonical preflight check"
+    - "Implement feature path resolver that constructs and validates spec/contract paths"
+    - "Implement template path helper for minimal and critical contract templates"
+    - "Implement optional docs helpers that return presence + path or absence for constitution, system overview, and sorted ADR list"
+    - "Define structured error enums (e.g., NotGitRepo, NoSpecifyDir, DirtyTree, MissingSpec, MissingContract, MissingTemplate)"
+    - "Update bootstrap, implement, and draft commands to use these helpers without changing their external behavior"
+    - "Add unit tests covering success and error paths for each helper"
+    - "Verify integration tests confirm exit codes and error messages match pre-refactor behavior"
+
+cli:
+  command: ""
+  args: []
+  flags: []
+  description: "N/A - internal refactor only, no new CLI commands"
+
+behavior:
+  steps:
+    - "Create src/utils.rs (or extend if it exists) for cross-cutting helpers like ensure_repo_and_specify_ready()"
+    - "Create src/fsutil.rs (or similar) for filesystem-specific helpers (feature paths, template paths, optional docs discovery)"
+    - "Define structured error types (enums) for all failure modes: NotGitRepo, NoSpecifyDir, DirtyTree, MissingSpec, MissingContract, MissingTemplate"
+    - "Implement ensure_repo_and_specify_ready() that verifies .git/ exists, .specify/ exists, and working tree is clean (allowing untracked files)"
+    - "Implement feature path resolver that constructs .specify/specs/<FEATURE_ID>.spec.md and docs/features/<FEATURE_ID>/contract.yaml, and validates both exist"
+    - "Implement template path helper that constructs paths for docs/templates/feature.contract.minimal.yaml and docs/templates/feature.contract.critical.yaml"
+    - "Implement optional docs helpers: constitution (.specify/memory/constitution.md), system overview (docs/system-overview.md), ADRs (scan docs/adrs/ for markdown files, return sorted list)"
+    - "Refactor bootstrap command to use ensure_repo_and_specify_ready() and map errors to exit codes"
+    - "Refactor implement command to use ensure_repo_and_specify_ready(), feature path resolver, and optional docs helpers"
+    - "Refactor draft command to use ensure_repo_and_specify_ready(), feature path resolver, and optional docs helpers"
+    - "Add unit tests for each helper covering success and error paths"
+    - "Run integration tests to confirm exit codes and error messages match pre-refactor behavior"
+
+logic:
+  invariants:
+    - "ensure_repo_and_specify_ready() must check .git/ existence before .specify/ existence before clean tree status"
+    - "All helpers must return structured error types, never bare strings"
+    - "Feature path resolver must construct canonical paths: .specify/specs/<FEATURE_ID>.spec.md and docs/features/<FEATURE_ID>/contract.yaml"
+    - "ADR listing must be deterministic and sorted (alphabetical by filename)"
+    - "Optional docs helpers must never fail; they return presence + path or absence"
+    - "Commands (bootstrap, implement, draft) must produce identical exit codes and error messages after refactor"
+    - "No new external crates may be introduced by this refactor"
+  error_conditions:
+    - code: "NOT_GIT_REPO"
+      description: ".git/ directory not found in current working directory"
+      effect: "Helper returns NotGitRepo error; command prints message and exits with code 1"
+    - code: "NO_SPECIFY_DIR"
+      description: ".specify/ directory not found (Spec Kit not initialized)"
+      effect: "Helper returns NoSpecifyDir error; command prints message and exits with code 1"
+    - code: "DIRTY_TREE"
+      description: "Git working tree has uncommitted changes (tracked files modified or staged)"
+      effect: "Helper returns DirtyTree error; command prints message and exits with code 1"
+    - code: "MISSING_SPEC"
+      description: "Feature spec file .specify/specs/<FEATURE_ID>.spec.md does not exist"
+      effect: "Feature path helper returns MissingSpec error; command prints message including missing path and exits with code 2"
+    - code: "MISSING_CONTRACT"
+      description: "Feature contract file docs/features/<FEATURE_ID>/contract.yaml does not exist"
+      effect: "Feature path helper returns MissingContract error; command prints message including missing path and exits with code 2"
+    - code: "MISSING_TEMPLATE"
+      description: "Required template file (minimal or critical contract template) does not exist"
+      effect: "Template path helper returns MissingTemplate error; command prints message and exits with code 2"
+
+filesystem:
+  creates_paths:
+    - "src/utils.rs (if it doesn't exist) or extends existing"
+    - "src/fsutil.rs (or similar module name) for filesystem helpers"
+  reads_paths:
+    - ".git/ (existence check only, no file contents)"
+    - ".specify/ (existence check only)"
+    - ".specify/specs/<FEATURE_ID>.spec.md (existence check only)"
+    - "docs/features/<FEATURE_ID>/contract.yaml (existence check only)"
+    - "docs/templates/feature.contract.minimal.yaml (existence check only)"
+    - "docs/templates/feature.contract.critical.yaml (existence check only)"
+    - ".specify/memory/constitution.md (existence check only)"
+    - "docs/system-overview.md (existence check only)"
+    - "docs/adrs/*.md (directory scan, existence checks only)"
+  copies_templates: []
+  must_not_modify:
+    - "src/bootstrap.rs (may be refactored to use helpers, but behavior unchanged)"
+    - "src/implement.rs (may be refactored to use helpers, but behavior unchanged)"
+    - "src/draft.rs (may be refactored to use helpers, but behavior unchanged)"
+    - "All existing specs, contracts, templates, constitution, ADRs, and system-overview.md"
+
+git_safety:
+  require_clean_tree: false
+  allow_untracked: true
+  rationale: |
+    This is an internal refactor. The ensure_repo_and_specify_ready() helper will enforce
+    clean tree requirements for commands that need them (implement, draft), but the refactor
+    itself does not require a clean tree to be implemented.
+
+verification:
+  strategy: ["unit", "integration"]
+  test_cases:
+    - "Unit test: ensure_repo_and_specify_ready() succeeds when .git/, .specify/ exist and tree is clean"
+    - "Unit test: ensure_repo_and_specify_ready() returns NotGitRepo when .git/ missing"
+    - "Unit test: ensure_repo_and_specify_ready() returns NoSpecifyDir when .specify/ missing"
+    - "Unit test: ensure_repo_and_specify_ready() returns DirtyTree when tracked files modified"
+    - "Unit test: ensure_repo_and_specify_ready() succeeds when untracked files present but no tracked changes"
+    - "Unit test: feature path resolver constructs correct paths for given FEATURE_ID"
+    - "Unit test: feature path resolver returns MissingSpec when spec file doesn't exist"
+    - "Unit test: feature path resolver returns MissingContract when contract file doesn't exist"
+    - "Unit test: template path helper constructs correct paths for minimal and critical templates"
+    - "Unit test: template path helper returns MissingTemplate when template file doesn't exist"
+    - "Unit test: optional docs helpers return presence + path when constitution exists"
+    - "Unit test: optional docs helpers return absence when constitution missing"
+    - "Unit test: optional docs helpers return presence + path when system overview exists"
+    - "Unit test: optional docs helpers return empty list when docs/adrs/ has no markdown files"
+    - "Unit test: optional docs helpers return sorted list of ADR paths when multiple ADRs exist"
+    - "Integration test: specdrive bootstrap with .git/ missing produces same exit code and error message as pre-refactor"
+    - "Integration test: specdrive bootstrap with .specify/ missing produces same exit code and error message as pre-refactor"
+    - "Integration test: specdrive implement <FEATURE_ID> with dirty tree produces same exit code and error message as pre-refactor"
+    - "Integration test: specdrive implement <FEATURE_ID> with missing spec produces same exit code and error message as pre-refactor"
+    - "Integration test: specdrive implement <FEATURE_ID> with missing contract produces same exit code and error message as pre-refactor"
+    - "Integration test: specdrive draft <FEATURE_ID> with clean tree and valid feature produces same output as pre-refactor"
+
+ai_instructions:
+  - "Treat this contract as the source of truth for implementing the refactor."
+  - "Do not modify this file unless explicitly instructed."
+  - "Prefer small, composable functions and clear error messages."
+  - "Avoid adding dependencies unless the contract explicitly allows it (no new external crates)."
+  - "Read all existing command implementations (bootstrap.rs, implement.rs, draft.rs) before refactoring to understand current behavior."
+  - "Ensure error messages and exit codes remain byte-for-byte identical after refactor (critical for backward compatibility)."
+  - "Write unit tests before refactoring to establish behavioral baseline."
+  - "Run integration tests after refactoring to confirm no regressions."
+  - "Keep helpers pure and side-effect free where possible (e.g., path construction should not perform I/O unless validating existence)."
+  - "Document structured error types clearly so commands can map them to appropriate exit codes and messages."
+  - "Follow existing code style and conventions in the specdrive codebase."
+  - "If in doubt about error handling strategy, choose the safest conservative behavior and document it in comments."

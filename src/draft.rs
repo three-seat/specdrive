@@ -1,8 +1,9 @@
-use crate::Result;
+use crate::fsutil;
 use crate::utils;
+use crate::Result;
 use std::fmt;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// Custom error type for the draft command with exit codes
 #[derive(Debug)]
@@ -51,85 +52,59 @@ fn draft_feature_inner(feature_id: &str) -> std::result::Result<(), DraftError> 
     }
 
     // 2. Preflight checks: git repo, .specify/, clean tree
+    // Per F-004 refactor: use shared helper and map structured errors
     utils::ensure_repo_and_specify_ready().map_err(|e| DraftError::new(e.to_string(), 1))?;
 
     // 3. Resolve and validate spec and contract paths
-    let spec_path = PathBuf::from(".specify")
-        .join("specs")
-        .join(format!("{}.spec.md", feature_id));
-    let contract_path = PathBuf::from("docs")
-        .join("features")
-        .join(feature_id)
-        .join("contract.yaml");
-
-    if !spec_path.exists() {
-        return Err(DraftError::new(
-            format!(
-                "spec file not found: {}. Feature {} does not exist.",
-                spec_path.display(),
-                feature_id
-            ),
+    // Per F-004 refactor: use FeaturePaths helper
+    let feature_paths = fsutil::FeaturePaths::new(feature_id);
+    feature_paths.validate().map_err(|e| match e {
+        fsutil::FeaturePathError::MissingSpec(_) => DraftError::new(
+            format!("{}. Feature {} does not exist.", e, feature_id),
             2,
-        ));
-    }
-
-    if !contract_path.exists() {
-        return Err(DraftError::new(
+        ),
+        fsutil::FeaturePathError::MissingContract(_) => DraftError::new(
             format!(
                 "contract skeleton file not found: {}. Feature {} does not exist.",
-                contract_path.display(),
+                feature_paths.contract.display(),
                 feature_id
             ),
             2,
-        ));
-    }
+        ),
+    })?;
 
     // 4. Validate required template files exist
-    let minimal_template_path = PathBuf::from("docs/templates/feature.contract.minimal.yaml");
-    let critical_template_path = PathBuf::from("docs/templates/feature.contract.critical.yaml");
-
-    if !minimal_template_path.exists() {
-        return Err(DraftError::new(
-            format!(
-                "required template not found: {}. Run 'specdrive bootstrap' first.",
-                minimal_template_path.display()
-            ),
+    // Per F-004 refactor: use TemplatePaths helper
+    let template_paths = fsutil::TemplatePaths::new();
+    template_paths.validate().map_err(|e| {
+        DraftError::new(
+            format!("{}. Run 'specdrive bootstrap' first.", e),
             2,
-        ));
-    }
+        )
+    })?;
 
-    if !critical_template_path.exists() {
-        return Err(DraftError::new(
-            format!(
-                "required template not found: {}. Run 'specdrive bootstrap' first.",
-                critical_template_path.display()
-            ),
-            2,
-        ));
-    }
+    // 5. Discover optional supporting docs
+    // Per F-004 refactor: use fsutil helpers for optional docs discovery
+    let constitution = fsutil::find_constitution();
+    let system_overview = fsutil::find_system_overview();
+    let adr_files = fsutil::find_adrs();
 
-    // 5. Detect optional supporting docs
-    let constitution_path = PathBuf::from(".specify/memory/constitution.md");
-    if constitution_path.exists() {
-        fs::read_to_string(&constitution_path).map_err(|e| {
+    // Validate we can read optional docs that exist
+    if let Some(path) = constitution.path() {
+        fs::read_to_string(path).map_err(|e| {
             DraftError::new(
-                format!(
-                    "failed to read constitution file {}: {}",
-                    constitution_path.display(),
-                    e
-                ),
+                format!("failed to read constitution file {}: {}", path.display(), e),
                 2,
             )
         })?;
     }
 
-    let system_overview_path = PathBuf::from("docs/system-overview.md");
-    if system_overview_path.exists() {
-        fs::read_to_string(&system_overview_path).map_err(|e| {
+    if let Some(path) = system_overview.path() {
+        fs::read_to_string(path).map_err(|e| {
             DraftError::new(
                 format!(
                     "failed to read system overview file {}: {}",
-                    system_overview_path.display(),
+                    path.display(),
                     e
                 ),
                 2,
@@ -137,39 +112,13 @@ fn draft_feature_inner(feature_id: &str) -> std::result::Result<(), DraftError> 
         })?;
     }
 
-    let adrs_dir = PathBuf::from("docs/adrs");
-    let mut adr_files = Vec::new();
-    if adrs_dir.exists() && adrs_dir.is_dir() {
-        let entries = fs::read_dir(&adrs_dir).map_err(|e| {
+    for adr_path in &adr_files {
+        fs::read_to_string(adr_path).map_err(|e| {
             DraftError::new(
-                format!(
-                    "failed to read ADRs directory {}: {}",
-                    adrs_dir.display(),
-                    e
-                ),
+                format!("failed to read ADR file {}: {}", adr_path.display(), e),
                 2,
             )
         })?;
-
-        for entry in entries {
-            let entry = entry.map_err(|e| {
-                DraftError::new(
-                    format!("failed to read ADR entry in {}: {}", adrs_dir.display(), e),
-                    2,
-                )
-            })?;
-            let path = entry.path();
-            if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("md") {
-                // Validate we can read it
-                fs::read_to_string(&path).map_err(|e| {
-                    DraftError::new(
-                        format!("failed to read ADR file {}: {}", path.display(), e),
-                        2,
-                    )
-                })?;
-                adr_files.push(path);
-            }
-        }
     }
 
     // 6. Read optional header and footer
@@ -208,12 +157,10 @@ fn draft_feature_inner(feature_id: &str) -> std::result::Result<(), DraftError> 
     // 7. Build and print the prompt
     let prompt = build_draft_prompt(
         feature_id,
-        &spec_path,
-        &contract_path,
-        &constitution_path,
-        &system_overview_path,
-        &minimal_template_path,
-        &critical_template_path,
+        &feature_paths,
+        &template_paths,
+        &constitution,
+        &system_overview,
         &adr_files,
         header.as_deref(),
         footer.as_deref(),
@@ -226,12 +173,10 @@ fn draft_feature_inner(feature_id: &str) -> std::result::Result<(), DraftError> 
 
 fn build_draft_prompt(
     feature_id: &str,
-    spec_path: &Path,
-    contract_path: &Path,
-    constitution_path: &Path,
-    system_overview_path: &Path,
-    minimal_template_path: &Path,
-    critical_template_path: &Path,
+    feature_paths: &fsutil::FeaturePaths,
+    template_paths: &fsutil::TemplatePaths,
+    constitution: &fsutil::OptionalDoc,
+    system_overview: &fsutil::OptionalDoc,
     adr_files: &[PathBuf],
     header: Option<&str>,
     footer: Option<&str>,
@@ -250,7 +195,7 @@ fn build_draft_prompt(
     // Built-in intro
     prompt.push_str(&format!(
         "You are drafting/refining the contract {} for feature {}.\n\n",
-        contract_path.display(),
+        feature_paths.contract.display(),
         feature_id
     ));
     prompt.push_str(
@@ -260,14 +205,17 @@ fn build_draft_prompt(
 
     // Files to read
     prompt.push_str("Files you MUST read before drafting the contract:\n");
-    prompt.push_str(&format!("- {} (feature spec)\n", spec_path.display()));
+    prompt.push_str(&format!(
+        "- {} (feature spec)\n",
+        feature_paths.spec.display()
+    ));
     prompt.push_str(&format!(
         "- {} (current or skeleton)\n",
-        contract_path.display()
+        feature_paths.contract.display()
     ));
 
-    if constitution_path.exists() {
-        prompt.push_str(&format!("- {}\n", constitution_path.display()));
+    if let Some(path) = constitution.path() {
+        prompt.push_str(&format!("- {}\n", path.display()));
     }
 
     if !adr_files.is_empty() {
@@ -277,17 +225,17 @@ fn build_draft_prompt(
         }
     }
 
-    if system_overview_path.exists() {
-        prompt.push_str(&format!("- {}\n", system_overview_path.display()));
+    if let Some(path) = system_overview.path() {
+        prompt.push_str(&format!("- {}\n", path.display()));
     }
 
     prompt.push_str(&format!(
         "- {} (minimal template)\n",
-        minimal_template_path.display()
+        template_paths.minimal.display()
     ));
     prompt.push_str(&format!(
         "- {} (critical template)\n",
-        critical_template_path.display()
+        template_paths.critical.display()
     ));
 
     prompt.push('\n');
