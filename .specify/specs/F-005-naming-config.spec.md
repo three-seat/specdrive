@@ -46,7 +46,15 @@ This is about **validation and policy**, not changing the filesystem layout.
 
 - If the config file is **present**, we support at least a `naming.feature` section, for example:
 
-  **CONFIG SNIPPET GOES HERE**  
+```yaml
+  schema_version: 1
+
+  naming:
+    feature:
+      pattern: "^F-[0-9]{3}-[a-z0-9-]+$"
+      example: "F-001-bootstrap"
+      description: "ID format: F-<3 digits>-<kebab-case-label>"
+```
   (e.g. `naming.feature.pattern`, `example`, `description`)
 
 - Future fields (out of scope for v0.1 but can be mentioned as comments in the template):
