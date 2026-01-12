@@ -1,6 +1,6 @@
+use crate::Result;
 use crate::fsutil;
 use crate::utils;
-use crate::Result;
 use std::fmt;
 use std::fs;
 use std::path::PathBuf;
@@ -45,10 +45,7 @@ pub fn draft_feature(feature_id: &str) -> Result<()> {
 fn draft_feature_inner(feature_id: &str) -> std::result::Result<(), DraftError> {
     // 1. Validate feature_id is non-empty
     if feature_id.trim().is_empty() {
-        return Err(DraftError::new(
-            "FEATURE_ID cannot be empty".to_string(),
-            1,
-        ));
+        return Err(DraftError::new("FEATURE_ID cannot be empty".to_string(), 1));
     }
 
     // 2. Preflight checks: git repo, .specify/, clean tree
@@ -59,10 +56,9 @@ fn draft_feature_inner(feature_id: &str) -> std::result::Result<(), DraftError> 
     // Per F-004 refactor: use FeaturePaths helper
     let feature_paths = fsutil::FeaturePaths::new(feature_id);
     feature_paths.validate().map_err(|e| match e {
-        fsutil::FeaturePathError::MissingSpec(_) => DraftError::new(
-            format!("{}. Feature {} does not exist.", e, feature_id),
-            2,
-        ),
+        fsutil::FeaturePathError::MissingSpec(_) => {
+            DraftError::new(format!("{}. Feature {} does not exist.", e, feature_id), 2)
+        }
         fsutil::FeaturePathError::MissingContract(_) => DraftError::new(
             format!(
                 "contract skeleton file not found: {}. Feature {} does not exist.",
@@ -76,12 +72,9 @@ fn draft_feature_inner(feature_id: &str) -> std::result::Result<(), DraftError> 
     // 4. Validate required template files exist
     // Per F-004 refactor: use TemplatePaths helper
     let template_paths = fsutil::TemplatePaths::new();
-    template_paths.validate().map_err(|e| {
-        DraftError::new(
-            format!("{}. Run 'specdrive bootstrap' first.", e),
-            2,
-        )
-    })?;
+    template_paths
+        .validate()
+        .map_err(|e| DraftError::new(format!("{}. Run 'specdrive bootstrap' first.", e), 2))?;
 
     // 5. Discover optional supporting docs
     // Per F-004 refactor: use fsutil helpers for optional docs discovery
@@ -242,7 +235,9 @@ fn build_draft_prompt(
 
     // Guidance section
     prompt.push_str("Guidance for drafting the contract:\n");
-    prompt.push_str("- Map the spec's behavior, context, and acceptance criteria to the contract sections:\n");
+    prompt.push_str(
+        "- Map the spec's behavior, context, and acceptance criteria to the contract sections:\n",
+    );
     prompt.push_str("  - requirements (high_level and low_level)\n");
     prompt.push_str("  - behavior (steps)\n");
     prompt.push_str("  - logic (invariants, error_conditions)\n");
@@ -261,7 +256,9 @@ fn build_draft_prompt(
     prompt.push_str("- Do NOT weaken invariants or lower safety properties\n");
     prompt.push_str("- Do NOT change feature IDs or basic layout\n");
     prompt.push_str("- Keep the contract structured and consistent with existing examples\n");
-    prompt.push_str("- Follow the contract template structure (minimal or critical as appropriate)\n");
+    prompt.push_str(
+        "- Follow the contract template structure (minimal or critical as appropriate)\n",
+    );
 
     // Optional footer
     if let Some(f) = footer {

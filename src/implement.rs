@@ -1,6 +1,6 @@
+use crate::Result;
 use crate::fsutil;
 use crate::utils;
-use crate::Result;
 use std::fmt;
 use std::fs;
 use std::path::PathBuf;
@@ -59,10 +59,7 @@ fn implement_feature_inner(feature_id: &str) -> std::result::Result<(), Implemen
     // Per F-004 refactor: use FeaturePaths helper
     let feature_paths = fsutil::FeaturePaths::new(feature_id);
     feature_paths.validate().map_err(|e| {
-        ImplementError::new(
-            format!("{}. Feature {} does not exist.", e, feature_id),
-            2,
-        )
+        ImplementError::new(format!("{}. Feature {} does not exist.", e, feature_id), 2)
     })?;
 
     // 4. Read and parse contract YAML
