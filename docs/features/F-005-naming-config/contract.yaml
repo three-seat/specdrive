@@ -1,150 +1,138 @@
  schema_version: 1
 
-  metadata:
-    id: "F-005-naming-config"
-    title: "005 Configurable naming conventions"
-    status: "draft"
-
-  summary: |
-    Add support for configurable feature naming conventions via an optional
-    docs/specdrive/config.yaml file. Validates FEATURE_IDs against basic safety
-    rules (no /, \, .., control chars, whitespace) and optional regex patterns.
-    Applied to new-feature, implement, and draft commands. Backward compatible.
-
-  scope:
-    product: "specdrive"
-    service: "specdrive-cli"
-    repo: "specdrive"
-    area: "cli"
-
-  requirements:
-    high_level:
-      - id: "HLR-001"
-        text: "Support optional config file at docs/specdrive/config.yaml for naming conventions."
-      - id: "HLR-002"
-        text: "Validate all FEATURE_IDs against basic safety rules and optional pattern rules."
-      - id: "HLR-003"
-        text: "Maintain backward compatibility: repos without config behave identically to pre-F-005."
-      - id: "HLR-004"
-        text: "Provide clear, actionable error messages when validation fails."
-
-    low_level:
-      - id: "LLR-001"
-        parent: "HLR-001"
-        text: "Config file location is docs/specdrive/config.yaml (optional)."
-      - id: "LLR-002"
-        parent: "HLR-001"
-        text: "Config schema includes naming.feature.pattern (regex), example, and description."
-      - id: "LLR-003"
-        parent: "HLR-001"
-        text: "Missing config file is valid; commands use built-in defaults (no pattern enforcement)."
-      - id: "LLR-004"
-        parent: "HLR-002"
-        text: "Always reject FEATURE_IDs containing /, \\, .., control characters, or whitespace."
-      - id: "LLR-005"
-        parent: "HLR-002"
-        text: "If config exists and defines naming.feature.pattern, validate FEATURE_ID against it."
-      - id: "LLR-006"
-        parent: "HLR-002"
-        text: "Validation applies to new-feature, implement, and draft commands before any filesystem work."
-      - id: "LLR-007"
-        parent: "HLR-003"
-        text: "Commands invoked without a config file behave identically to their pre-F-005 behavior."
-      - id: "LLR-008"
-        parent: "HLR-004"
-        text: "Validation error messages include the invalid FEATURE_ID, the pattern, and the example from config."
-      - id: "LLR-009"
-        parent: "HLR-001"
-        text: "Syntactically invalid YAML config causes exit code 2 with a clear parse error message."
-      - id: "LLR-010"
-        parent: "HLR-001"
-        text: "Config file is read-only; no command modifies it."
-
-  cli:
-    command: "N/A"
-    args: []
-    flags: []
-    description: "Modifies existing commands (new-feature, implement, draft) to validate FEATURE_IDs against safety rules and optional config patterns."
-
-  behavior:
-    steps:
-      - "Attempt to load config from docs/specdrive/config.yaml (ignore if missing)."
-      - "Run basic safety checks on the provided FEATURE_ID: reject if it contains /, \\, .., control characters, or whitespace."
-      - "If config was loaded successfully and defines naming.feature.pattern, validate FEATURE_ID against the regex pattern."
-      - "On validation failure (safety or pattern): print error message including FEATURE_ID, configured pattern (if any), and example (if any); exit with code 1."
-      - "On config parse error: print error message including config path and parse details; exit with code 2."
-      - "On validation success: continue with the normal command flow (new-feature, implement, or draft)."
-
-  logic:
-    invariants:
-      - "FEATURE_ID must never contain /, \\, or .."
-      - "FEATURE_ID must never contain control characters or whitespace."
-      - "Path construction remains deterministic: .specify/specs/<FEATURE_ID>.spec.md and docs/features/<FEATURE_ID>/contract.yaml."
-      - "No glob patterns or wildcard file searches based on FEATURE_ID."
-      - "Config file is never modified by any command."
-      - "Validation occurs before any filesystem writes or git operations."
-
-    error_conditions:
-      - code: "1"
-        description: "FEATURE_ID fails basic safety checks (contains /, \\, .., control chars, or whitespace)."
-        effect: "Command exits immediately with a clear error message."
-      - code: "1"
-        description: "FEATURE_ID does not match the configured naming.feature.pattern."
-        effect: "Command exits immediately with an error including the pattern, example, and invalid ID."
-      - code: "2"
-        description: "Config file exists but contains invalid YAML syntax."
-        effect: "Command exits immediately with a parse error message including the config path."
-
-  filesystem:
-    creates_paths: []
-    reads_paths:
-      - "docs/specdrive/config.yaml"
-    copies_templates: []
-    must_not_modify:
-      - "docs/specdrive/config.yaml"
-
-  git_safety:
-    require_clean_tree: false
-    allow_untracked: true
-
-  verification:
-    strategy: ["unit"]
-    test_cases:
-      - id: "TC-001"
-        requirement: "HLR-003"
-        type: "unit"
-        description: "With no config file present, new-feature/implement/draft accept IDs like F-001-bootstrap and behave as pre-F-005."
-      - id: "TC-002"
-        requirement: "HLR-002"
-        type: "unit"
-        description: "With config defining pattern ^F-[0-9]{3}-[a-z0-9-]+$, new-feature F-001-test succeeds."
-      - id: "TC-003"
-        requirement: "HLR-002"
-        type: "unit"
-        description: "With config defining pattern ^F-[0-9]{3}-[a-z0-9-]+$, new-feature feature-foo exits 1 with clear pattern error."
-      - id: "TC-004"
-        requirement: "LLR-004"
-        type: "unit"
-        description: "Passing FEATURE_ID ../../etc/passwd to any command exits 1 with safety error (rejects / and ..)."
-      - id: "TC-005"
-        requirement: "LLR-009"
-        type: "unit"
-        description: "With syntactically invalid YAML in docs/specdrive/config.yaml, command exits 2 with parse error."
-      - id: "TC-006"
-        requirement: "LLR-010"
-        type: "unit"
-        description: "After running new-feature/implement/draft with config present, verify docs/specdrive/config.yaml is unmodified."
-      - id: "TC-007"
-        requirement: "LLR-008"
-        type: "unit"
-        description: "Validation error message includes the invalid FEATURE_ID, the configured pattern, and the configured example."
-
-  ai_instructions:
-    - "Treat this contract as the source of truth for implementing the feature."
-    - "Do not modify this file unless explicitly instructed."
-    - "Prefer small, composable functions and clear error messages."
-    - "Avoid adding dependencies unless the contract explicitly allows it."
-    - "Validation must occur before any filesystem work in new-feature, implement, and draft."
-    - "Reuse existing config loading and error handling patterns where possible."
-    - "Config file must remain read-only; never write or modify it."
-    - "Path construction must remain unchanged: no globs, wildcards, or directory traversal based on FEATURE_ID."
+metadata:
+  id: "F-005-naming-config"
+  title: "005 Configurable naming conventions"
+  status: "draft"
+summary: |
+  Add support for configurable feature naming conventions via an optional
+  docs/specdrive/config.yaml file. Validates FEATURE_IDs against basic safety
+  rules (no /, \, .., control chars, whitespace) and optional regex patterns.
+  Applied to new-feature, implement, and draft commands. Backward compatible.
+scope:
+  product: "specdrive"
+  service: "specdrive-cli"
+  repo: "specdrive"
+  area: "cli"
+requirements:
+  high_level:
+    - id: "HLR-001"
+      text: "Support optional config file at docs/specdrive/config.yaml for naming conventions."
+    - id: "HLR-002"
+      text: "Validate all FEATURE_IDs against basic safety rules and optional pattern rules."
+    - id: "HLR-003"
+      text: "Maintain backward compatibility: repos without config behave identically to pre-F-005."
+    - id: "HLR-004"
+      text: "Provide clear, actionable error messages when validation fails."
+  low_level:
+    - id: "LLR-001"
+      parent: "HLR-001"
+      text: "Config file location is docs/specdrive/config.yaml (optional)."
+    - id: "LLR-002"
+      parent: "HLR-001"
+      text: "Config schema includes naming.feature.pattern (regex), example, and description."
+    - id: "LLR-003"
+      parent: "HLR-001"
+      text: "Missing config file is valid; commands use built-in defaults (no pattern enforcement)."
+    - id: "LLR-004"
+      parent: "HLR-002"
+      text: "Always reject FEATURE_IDs containing /, \\, .., control characters, or whitespace."
+    - id: "LLR-005"
+      parent: "HLR-002"
+      text: "If config exists and defines naming.feature.pattern, validate FEATURE_ID against it."
+    - id: "LLR-006"
+      parent: "HLR-002"
+      text: "Validation applies to new-feature, implement, and draft commands before any filesystem work."
+    - id: "LLR-007"
+      parent: "HLR-003"
+      text: "Commands invoked without a config file behave identically to their pre-F-005 behavior."
+    - id: "LLR-008"
+      parent: "HLR-004"
+      text: "Validation error messages include the invalid FEATURE_ID, the pattern, and the example from config."
+    - id: "LLR-009"
+      parent: "HLR-001"
+      text: "Syntactically invalid YAML config causes exit code 2 with a clear parse error message."
+    - id: "LLR-010"
+      parent: "HLR-001"
+      text: "Config file is read-only; no command modifies it."
+cli:
+  command: "N/A"
+  args: []
+  flags: []
+  description: "Modifies existing commands (new-feature, implement, draft) to validate FEATURE_IDs against safety rules and optional config patterns."
+behavior:
+  steps:
+    - "Attempt to load config from docs/specdrive/config.yaml (ignore if missing)."
+    - "Run basic safety checks on the provided FEATURE_ID: reject if it contains /, \\, .., control characters, or whitespace."
+    - "If config was loaded successfully and defines naming.feature.pattern, validate FEATURE_ID against the regex pattern."
+    - "On validation failure (safety or pattern): print error message including FEATURE_ID, configured pattern (if any), and example (if any); exit with code 1."
+    - "On config parse error: print error message including config path and parse details; exit with code 2."
+    - "On validation success: continue with the normal command flow (new-feature, implement, or draft)."
+logic:
+  invariants:
+    - "FEATURE_ID must never contain /, \\, or .."
+    - "FEATURE_ID must never contain control characters or whitespace."
+    - "Path construction remains deterministic: .specify/specs/<FEATURE_ID>.spec.md and docs/features/<FEATURE_ID>/contract.yaml."
+    - "No glob patterns or wildcard file searches based on FEATURE_ID."
+    - "Config file is never modified by any command."
+    - "Validation occurs before any filesystem writes or git operations."
+  error_conditions:
+    - code: "1"
+      description: "FEATURE_ID fails basic safety checks (contains /, \\, .., control chars, or whitespace)."
+      effect: "Command exits immediately with a clear error message."
+    - code: "1"
+      description: "FEATURE_ID does not match the configured naming.feature.pattern."
+      effect: "Command exits immediately with an error including the pattern, example, and invalid ID."
+    - code: "2"
+      description: "Config file exists but contains invalid YAML syntax."
+      effect: "Command exits immediately with a parse error message including the config path."
+filesystem:
+  creates_paths: []
+  reads_paths:
+    - "docs/specdrive/config.yaml"
+  copies_templates: []
+  must_not_modify:
+    - "docs/specdrive/config.yaml"
+git_safety:
+  require_clean_tree: false
+  allow_untracked: true
+verification:
+  strategy: ["unit"]
+  test_cases:
+    - id: "TC-001"
+      requirement: "HLR-003"
+      type: "unit"
+      description: "With no config file present, new-feature/implement/draft accept IDs like F-001-bootstrap and behave as pre-F-005."
+    - id: "TC-002"
+      requirement: "HLR-002"
+      type: "unit"
+      description: "With config defining pattern ^F-[0-9]{3}-[a-z0-9-]+$, new-feature F-001-test succeeds."
+    - id: "TC-003"
+      requirement: "HLR-002"
+      type: "unit"
+      description: "With config defining pattern ^F-[0-9]{3}-[a-z0-9-]+$, new-feature feature-foo exits 1 with clear pattern error."
+    - id: "TC-004"
+      requirement: "LLR-004"
+      type: "unit"
+      description: "Passing FEATURE_ID ../../etc/passwd to any command exits 1 with safety error (rejects / and ..)."
+    - id: "TC-005"
+      requirement: "LLR-009"
+      type: "unit"
+      description: "With syntactically invalid YAML in docs/specdrive/config.yaml, command exits 2 with parse error."
+    - id: "TC-006"
+      requirement: "LLR-010"
+      type: "unit"
+      description: "After running new-feature/implement/draft with config present, verify docs/specdrive/config.yaml is unmodified."
+    - id: "TC-007"
+      requirement: "LLR-008"
+      type: "unit"
+      description: "Validation error message includes the invalid FEATURE_ID, the configured pattern, and the configured example."
+ai_instructions:
+  - "Treat this contract as the source of truth for implementing the feature."
+  - "Do not modify this file unless explicitly instructed."
+  - "Prefer small, composable functions and clear error messages."
+  - "Avoid adding dependencies unless the contract explicitly allows it."
+  - "Validation must occur before any filesystem work in new-feature, implement, and draft."
+  - "Reuse existing config loading and error handling patterns where possible."
+  - "Config file must remain read-only; never write or modify it."
+  - "Path construction must remain unchanged: no globs, wildcards, or directory traversal based on FEATURE_ID."
