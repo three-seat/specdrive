@@ -1,0 +1,7 @@
+schema_version: 1
+
+naming:
+  feature:
+    pattern: "^F-[0-9]{3}-[a-z0-9-]+$"
+    example: "F-001-bootstrap"
+    description: "ID format: F-<3 digits>-<kebab-case-label>"

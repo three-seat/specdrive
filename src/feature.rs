@@ -1,10 +1,16 @@
 use std::path::{Path, PathBuf};
 
 use crate::Result;
+use crate::config;
 use crate::fsutil;
 use crate::specify;
 
 pub fn new_feature(feature_id: &str, critical: bool) -> Result<()> {
+    // Per F-005 contract: validate FEATURE_ID before any filesystem work
+    config::validate_feature_id(feature_id).map_err(|e| {
+        let err: Box<dyn std::error::Error + Send + Sync> = Box::new(e);
+        err
+    })?;
     // 1) Create spec file from template (idempotent)
     let spec_path = specify::ensure_feature_spec(feature_id)?;
 

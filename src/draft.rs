@@ -1,4 +1,5 @@
 use crate::Result;
+use crate::config;
 use crate::fsutil;
 use crate::utils;
 use std::fmt;
@@ -48,11 +49,14 @@ fn draft_feature_inner(feature_id: &str) -> std::result::Result<(), DraftError> 
         return Err(DraftError::new("FEATURE_ID cannot be empty".to_string(), 1));
     }
 
-    // 2. Preflight checks: git repo, .specify/, clean tree
+    // 2. Per F-005 contract: validate FEATURE_ID against safety rules and config pattern
+    config::validate_feature_id(feature_id).map_err(|e| DraftError::new(e.to_string(), e.exit_code()))?;
+
+    // 3. Preflight checks: git repo, .specify/, clean tree
     // Per F-004 refactor: use shared helper and map structured errors
     utils::ensure_repo_and_specify_ready().map_err(|e| DraftError::new(e.to_string(), 1))?;
 
-    // 3. Resolve and validate spec and contract paths
+    // 4. Resolve and validate spec and contract paths
     // Per F-004 refactor: use FeaturePaths helper
     let feature_paths = fsutil::FeaturePaths::new(feature_id);
     feature_paths.validate().map_err(|e| match e {
@@ -69,14 +73,14 @@ fn draft_feature_inner(feature_id: &str) -> std::result::Result<(), DraftError> 
         ),
     })?;
 
-    // 4. Validate required template files exist
+    // 5. Validate required template files exist
     // Per F-004 refactor: use TemplatePaths helper
     let template_paths = fsutil::TemplatePaths::new();
     template_paths
         .validate()
         .map_err(|e| DraftError::new(format!("{}. Run 'specdrive bootstrap' first.", e), 2))?;
 
-    // 5. Discover optional supporting docs
+    // 6. Discover optional supporting docs
     // Per F-004 refactor: use fsutil helpers for optional docs discovery
     let constitution = fsutil::find_constitution();
     let system_overview = fsutil::find_system_overview();
@@ -114,7 +118,7 @@ fn draft_feature_inner(feature_id: &str) -> std::result::Result<(), DraftError> 
         })?;
     }
 
-    // 6. Read optional header and footer
+    // 7. Read optional header and footer
     let header_path = PathBuf::from("docs/ai/draft-header.md");
     let header = if header_path.exists() {
         Some(fs::read_to_string(&header_path).map_err(|e| {
@@ -147,7 +151,7 @@ fn draft_feature_inner(feature_id: &str) -> std::result::Result<(), DraftError> 
         None
     };
 
-    // 7. Build and print the prompt
+    // 8. Build and print the prompt
     let prompt = build_draft_prompt(
         feature_id,
         &feature_paths,
