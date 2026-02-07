@@ -1,6 +1,7 @@
+use crate::Result;
+use crate::config;
 use crate::fsutil;
 use crate::utils;
-use crate::Result;
 use std::fmt;
 use std::fs;
 use std::path::PathBuf;
@@ -51,21 +52,21 @@ fn implement_feature_inner(feature_id: &str) -> std::result::Result<(), Implemen
         ));
     }
 
-    // 2. Preflight checks: git repo, .specify/, clean tree
+    // 2. Per F-005 contract: validate FEATURE_ID against safety rules and config pattern
+    config::validate_feature_id(feature_id).map_err(|e| ImplementError::new(e.to_string(), e.exit_code()))?;
+
+    // 3. Preflight checks: git repo, .specify/, clean tree
     // Per F-004 refactor: use shared helper and map structured errors
     utils::ensure_repo_and_specify_ready().map_err(|e| ImplementError::new(e.to_string(), 1))?;
 
-    // 3. Resolve and validate spec and contract paths
+    // 4. Resolve and validate spec and contract paths
     // Per F-004 refactor: use FeaturePaths helper
     let feature_paths = fsutil::FeaturePaths::new(feature_id);
     feature_paths.validate().map_err(|e| {
-        ImplementError::new(
-            format!("{}. Feature {} does not exist.", e, feature_id),
-            2,
-        )
+        ImplementError::new(format!("{}. Feature {} does not exist.", e, feature_id), 2)
     })?;
 
-    // 4. Read and parse contract YAML
+    // 5. Read and parse contract YAML
     let contract_text = fs::read_to_string(&feature_paths.contract).map_err(|e| {
         ImplementError::new(
             format!(
@@ -88,7 +89,7 @@ fn implement_feature_inner(feature_id: &str) -> std::result::Result<(), Implemen
         )
     })?;
 
-    // 5. Check critical feature review gate
+    // 6. Check critical feature review gate
     if let Some(metadata) = contract.get("metadata") {
         if let Some(critical) = metadata.get("critical") {
             if critical.as_bool().unwrap_or(false) {
@@ -120,7 +121,7 @@ fn implement_feature_inner(feature_id: &str) -> std::result::Result<(), Implemen
         }
     }
 
-    // 6. Discover optional supporting docs
+    // 7. Discover optional supporting docs
     // Per F-004 refactor: use fsutil helpers for optional docs discovery
     let constitution = fsutil::find_constitution();
     let system_overview = fsutil::find_system_overview();
@@ -158,7 +159,7 @@ fn implement_feature_inner(feature_id: &str) -> std::result::Result<(), Implemen
         })?;
     }
 
-    // 7. Read optional header and footer
+    // 8. Read optional header and footer
     let header_path = PathBuf::from("docs/ai/implement-header.md");
     let header = if header_path.exists() {
         Some(fs::read_to_string(&header_path).map_err(|e| {
@@ -191,7 +192,7 @@ fn implement_feature_inner(feature_id: &str) -> std::result::Result<(), Implemen
         None
     };
 
-    // 8. Build and print the prompt
+    // 9. Build and print the prompt
     let prompt = build_prompt(
         feature_id,
         &feature_paths,

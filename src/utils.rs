@@ -22,13 +22,22 @@ impl fmt::Display for RepoReadinessError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             RepoReadinessError::NotGitRepo => {
-                write!(f, "Not a git repository. Please run this command from the root of a git repo.")
+                write!(
+                    f,
+                    "Not a git repository. Please run this command from the root of a git repo."
+                )
             }
             RepoReadinessError::NoSpecifyDir => {
-                write!(f, ".specify/ directory not found. Please run 'specify init' first.")
+                write!(
+                    f,
+                    ".specify/ directory not found. Please run 'specify init' first."
+                )
             }
             RepoReadinessError::DirtyTree => {
-                write!(f, "git working tree is not clean: please commit or stash your changes")
+                write!(
+                    f,
+                    "git working tree is not clean: please commit or stash your changes"
+                )
             }
         }
     }

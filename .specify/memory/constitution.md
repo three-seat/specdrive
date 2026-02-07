@@ -97,6 +97,84 @@ ADRs and specs/contracts:
 - Feature specs + contracts describe **specific changes** within that direction.
 - If an ADR is superseded, affected future features should reference the newer ADR instead of editing old ones.
 
+## Requirements Structure (Contracts)
+
+All `contract.yaml` files must structure requirements as:
+
+- `requirements.high_level`: array of high-level requirements.
+- `requirements.low_level`: array of low-level requirements that refine HLRs.
+
+### High-Level Requirements (HLR)
+
+- Each HLR MUST have an `id` of the form: `HLR-###`
+  - Example: `HLR-001`, `HLR-002`, ...
+- Each HLR MUST have a `text` field describing the requirement in clear language.
+- HLRs describe *what* the feature must achieve from a product/behaviour standpoint.
+
+### Low-Level Requirements (LLR)
+
+- Each LLR MUST have an `id` of the form: `LLR-###`
+  - Example: `LLR-001`, `LLR-002`, ...
+- Each LLR MUST have:
+  - `parent`: the `id` of an existing HLR (e.g., `HLR-001`).
+  - `text`: a concrete, implementable refinement of that HLR.
+- Every `LLR.parent` MUST refer to a valid HLR in the same contract.
+- LLRs describe *how* the HLRs are satisfied in terms of behaviour, checks, or constraints.
+
+### General Rules
+
+- IDs MUST NOT be reused for different meanings within the same contract.
+- New requirements SHOULD use new IDs; do not renumber existing HLR/LLR entries.
+- AI-generated contracts MUST follow this structure and naming scheme by default.
+
+### Assumptions
+
+All critical contracts must define an `assumptions` section.
+
+Rules:
+
+- Each assumption must have:
+  - An `id` of the form `A-###` (for example: `A-001`, `A-002`, etc.).
+  - A `text` field that describes an environmental or contextual condition that is **taken as given**, not something the command enforces at runtime.
+- Assumptions are things like: “we are in the repo root,” “Spec Kit has already been initialized,” “templates live in a given directory,” and so on.
+- IDs must not be reused with different meanings within the same contract.
+- When adding new assumptions, use new IDs; do not renumber existing ones.
+
+---
+
+### Preconditions
+
+All critical contracts must define a `preconditions` section.
+
+Rules:
+
+- Each precondition must have:
+  - An `id` of the form `P-###` (for example: `P-001`, `P-002`, etc.).
+  - A `text` field that describes a condition that the command **actively checks and enforces**, failing fast if it is not met.
+- Preconditions should correspond to checks that result in usage or precondition errors, such as:
+  - “FEATURE_ID is a non-empty string.”
+  - “The command is run from the repository root.”
+- IDs must remain stable over time; do not renumber once a precondition is in use.
+- Preconditions should be enforced explicitly in code, not just implied.
+
+---
+
+### Test Cases (Verification)
+
+All contracts must define test cases under the `verification` section.
+
+Rules:
+
+- Each test case must have:
+  - An `id` of the form `TC-###` (for example: `TC-001`, `TC-002`, etc.).
+  - A `requirement` field that references the `id` of the HLR or LLR it verifies (for example: `HLR-001`, `LLR-003`).
+  - A `type` that classifies the test, such as `unit`, `integration`, or another clearly named category.
+  - A `description` that clearly states the scenario and the expected outcome (for example: what inputs, what state, what exit code or behavior).
+- Every high-level requirement should have at least one associated test case.
+- Low-level requirements that encode important edge cases or error handling should also be covered by test cases.
+- Test case IDs must be stable over time; do not renumber existing test cases.
+- AI-generated contracts must follow the `TC-###` naming convention and always link tests back to specific requirements via the `requirement` field.
+
 ## Additional Constraints
 
 - Technology:

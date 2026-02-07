@@ -261,7 +261,10 @@ mod tests {
     #[test]
     fn test_feature_paths_construction() {
         let paths = FeaturePaths::new("F-001-test");
-        assert_eq!(paths.spec, PathBuf::from(".specify/specs/F-001-test.spec.md"));
+        assert_eq!(
+            paths.spec,
+            PathBuf::from(".specify/specs/F-001-test.spec.md")
+        );
         assert_eq!(
             paths.contract,
             PathBuf::from("docs/features/F-001-test/contract.yaml")

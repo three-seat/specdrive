@@ -94,7 +94,8 @@ fn test_draft_with_dirty_tree() {
 
     // Create .specify/ and basic structure
     fs::create_dir_all(repo_path.join(".specify/specs")).expect("Failed to create specs dir");
-    fs::create_dir_all(repo_path.join("docs/features/F-001")).expect("Failed to create feature dir");
+    fs::create_dir_all(repo_path.join("docs/features/F-001"))
+        .expect("Failed to create feature dir");
     fs::create_dir_all(repo_path.join("docs/templates")).expect("Failed to create templates dir");
 
     // Create spec and contract files
@@ -161,7 +162,8 @@ fn test_draft_with_missing_spec() {
 
     // Create .specify/ but no spec file
     fs::create_dir_all(repo_path.join(".specify/specs")).expect("Failed to create specs dir");
-    fs::create_dir_all(repo_path.join("docs/features/F-001")).expect("Failed to create feature dir");
+    fs::create_dir_all(repo_path.join("docs/features/F-001"))
+        .expect("Failed to create feature dir");
     fs::create_dir_all(repo_path.join("docs/templates")).expect("Failed to create templates dir");
 
     // Create contract but not spec
@@ -218,7 +220,8 @@ fn test_draft_with_missing_contract() {
 
     // Create .specify/ and spec file
     fs::create_dir_all(repo_path.join(".specify/specs")).expect("Failed to create specs dir");
-    fs::create_dir_all(repo_path.join("docs/features/F-001")).expect("Failed to create feature dir");
+    fs::create_dir_all(repo_path.join("docs/features/F-001"))
+        .expect("Failed to create feature dir");
     fs::create_dir_all(repo_path.join("docs/templates")).expect("Failed to create templates dir");
 
     // Create spec but not contract
@@ -275,7 +278,8 @@ fn test_draft_with_missing_minimal_template() {
 
     // Create basic structure
     fs::create_dir_all(repo_path.join(".specify/specs")).expect("Failed to create specs dir");
-    fs::create_dir_all(repo_path.join("docs/features/F-001")).expect("Failed to create feature dir");
+    fs::create_dir_all(repo_path.join("docs/features/F-001"))
+        .expect("Failed to create feature dir");
     fs::create_dir_all(repo_path.join("docs/templates")).expect("Failed to create templates dir");
 
     // Create spec and contract
@@ -333,7 +337,8 @@ fn test_draft_success_with_basic_structure() {
     // Create full structure
     fs::create_dir_all(repo_path.join(".specify/specs")).expect("Failed to create specs dir");
     fs::create_dir_all(repo_path.join(".specify/memory")).expect("Failed to create memory dir");
-    fs::create_dir_all(repo_path.join("docs/features/F-001")).expect("Failed to create feature dir");
+    fs::create_dir_all(repo_path.join("docs/features/F-001"))
+        .expect("Failed to create feature dir");
     fs::create_dir_all(repo_path.join("docs/templates")).expect("Failed to create templates dir");
     fs::create_dir_all(repo_path.join("docs/adrs")).expect("Failed to create adrs dir");
 
@@ -366,11 +371,8 @@ fn test_draft_success_with_basic_structure() {
     .expect("Failed to write system overview");
 
     // Create an ADR
-    fs::write(
-        repo_path.join("docs/adrs/ADR-001-test.md"),
-        "# ADR-001",
-    )
-    .expect("Failed to write ADR");
+    fs::write(repo_path.join("docs/adrs/ADR-001-test.md"), "# ADR-001")
+        .expect("Failed to write ADR");
 
     // Create template files
     fs::write(
@@ -480,7 +482,8 @@ fn test_draft_with_header_and_footer() {
 
     // Create full structure
     fs::create_dir_all(repo_path.join(".specify/specs")).expect("Failed to create specs dir");
-    fs::create_dir_all(repo_path.join("docs/features/F-001")).expect("Failed to create feature dir");
+    fs::create_dir_all(repo_path.join("docs/features/F-001"))
+        .expect("Failed to create feature dir");
     fs::create_dir_all(repo_path.join("docs/templates")).expect("Failed to create templates dir");
     fs::create_dir_all(repo_path.join("docs/ai")).expect("Failed to create ai dir");
 
@@ -539,7 +542,9 @@ fn test_draft_with_header_and_footer() {
     // Verify header appears at the beginning
     let lines: Vec<&str> = stdout.lines().collect();
     assert!(
-        lines.iter().any(|line| line.contains("CUSTOM_HEADER_CONTENT")),
+        lines
+            .iter()
+            .any(|line| line.contains("CUSTOM_HEADER_CONTENT")),
         "Expected header content in prompt"
     );
 
@@ -573,7 +578,8 @@ fn test_draft_is_read_only() {
 
     // Create minimal structure
     fs::create_dir_all(repo_path.join(".specify/specs")).expect("Failed to create specs dir");
-    fs::create_dir_all(repo_path.join("docs/features/F-001")).expect("Failed to create feature dir");
+    fs::create_dir_all(repo_path.join("docs/features/F-001"))
+        .expect("Failed to create feature dir");
     fs::create_dir_all(repo_path.join("docs/templates")).expect("Failed to create templates dir");
 
     fs::write(
