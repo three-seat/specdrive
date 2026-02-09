@@ -37,6 +37,17 @@ SpecDrive addresses this by:
 
 ---
 
+## Design by contract (practical)
+
+SpecDrive follows a practical “design by contract” approach:
+- A feature spec captures intent.
+- A contract (machine-readable) captures testable behavior and constraints.
+- Implementation is reviewed and validated against that contract before merge.
+
+This keeps changes small, explicit, and auditable—whether code is written by a human or generated with AI.
+
+---
+
 ## Feature lifecycle (high level)
 
 ```
