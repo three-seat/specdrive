@@ -1,0 +1,284 @@
+schema_version: 1
+
+metadata:
+  id: "F-006"
+  title: "Emit implementation patch artifacts"
+  status: "draft"
+  critical: true
+
+summary: |
+  Add `specdrive patch emit <FEATURE_ID>` to emit a reviewable patch artifact
+  from externally produced implementation changes. This is critical because it creates
+  a safe, local-only handoff between AI/manual implementation and human review.
+
+scope:
+  product: "specdrive"
+  service: "specdrive-cli"
+  repo: "specdrive"
+  area: "git"
+
+requirements:
+  high_level:
+    - id: "HLR-001"
+      text: "SpecDrive must emit a patch artifact from current implementation changes without applying, committing, or generating code."
+    - id: "HLR-002"
+      text: "Patch emission must preserve existing `implement` prompt-generation behavior."
+    - id: "HLR-003"
+      text: "Patch emission must be explicit, local-only, reversible, and safe for AI-assisted workflows."
+
+  low_level:
+    - id: "LLR-001"
+      parent: "HLR-001"
+      text: "The command `specdrive patch emit <FEATURE_ID>` must generate a patch using `git diff --binary HEAD`."
+    - id: "LLR-002"
+      parent: "HLR-001"
+      text: "The generated patch must be written under the feature-local patch directory, defaulting to `docs/features/<FEATURE_ID>/patches/`, with filename `<FEATURE_ID>.patch`."
+    - id: "LLR-003"
+      parent: "HLR-001"
+      text: "If the feature-local patch directory does not exist, SpecDrive must create it before writing the patch file."
+    - id: "LLR-004"
+      parent: "HLR-001"
+      text: "The generated patch must pass `git apply --check <patch_file>`."
+    - id: "LLR-005"
+      parent: "HLR-001"
+      text: "Patch emission must fail clearly when the diff is empty."
+    - id: "LLR-006"
+      parent: "HLR-001"
+      text: "Patch emission must include staged newly created files."
+    - id: "LLR-007"
+      parent: "HLR-001"
+      text: "Patch emission must warn when untracked files exist and must not include them automatically."
+    - id: "LLR-008"
+      parent: "HLR-001"
+      text: "The generated patch artifact must not include itself."
+    - id: "LLR-009"
+      parent: "HLR-002"
+      text: "Running `specdrive implement <FEATURE_ID>` must retain existing prompt-generation behavior and clean-tree preflight."
+    - id: "LLR-010"
+      parent: "HLR-003"
+      text: "Patch emission must not invoke AI APIs, make network calls, apply patches, create commits, create branches, or mutate git history."
+    - id: "LLR-011"
+      parent: "HLR-003"
+      text: "Git commands must be invoked through structured process arguments, not arbitrary user-provided shell strings."
+    - id: "LLR-012"
+      parent: "HLR-003"
+      text: "Successful patch emission must print a concise summary including patch path, changed file count, insertions, and deletions."
+
+assumptions:
+  - id: "A-001"
+    text: "Repo layout follows `.specify/` and `docs/` conventions."
+  - id: "A-002"
+    text: "Required tools are installed, including `git` and Spec Kit initialization via `specify init`."
+  - id: "A-003"
+    text: "Implementation changes are produced externally by a human or AI tool before patch emission."
+  - id: "A-004"
+    text: "Newly created files intended for inclusion are explicitly staged by the user before patch emission."
+
+preconditions:
+  - id: "P-001"
+    text: "Command is run from repo root."
+  - id: "P-002"
+    text: "Current directory is inside a git repository."
+  - id: "P-003"
+    text: "`.specify/` exists."
+  - id: "P-004"
+    text: "Feature spec exists at `.specify/specs/<FEATURE_ID>.spec.md`."
+  - id: "P-005"
+    text: "Feature contract exists at `docs/features/<FEATURE_ID>/contract.yaml`."
+  - id: "P-006"
+    text: "`specdrive patch emit <FEATURE_ID>` has a non-empty git diff against `HEAD`."
+
+impact:
+  security:
+    confidentiality: "low"
+    integrity: "medium"
+    availability: "low"
+    rationale: "Incorrect patch emission could omit intended changes, include unintended tracked changes, or create misleading review artifacts. The command must not expose secrets, mutate git history, apply patches, or silently include untracked files."
+  privacy:
+    pii_involved: false
+    rationale: "The feature operates on local repository diffs and does not introduce collection, processing, or transmission of personal data."
+
+architecture:
+  related_docs:
+    - "docs/system-overview.md"
+    - "docs/adrs/ADR-001-specdrive-bootstrap-assumptions-and-responsibilities.md"
+    - ".specify/memory/constitution.md"
+    - ".specify/specs/F-006.spec.md"
+  constraints:
+    - "No secrets written to disk beyond whatever the user has already placed in tracked source files."
+    - "No network calls."
+    - "No AI API calls."
+    - "No automatic patch application."
+    - "No automatic commits."
+    - "No git history mutation."
+    - "No automatic inclusion of untracked files."
+    - "No new crates unless separately justified and approved."
+
+cli:
+  command: "specdrive patch emit <FEATURE_ID>"
+  args:
+    - name: "FEATURE_ID"
+      required: true
+      description: "Feature identifier whose implementation changes should be captured."
+  flags: []
+  description: "Emit a feature-local patch artifact from the current git diff for externally produced implementation changes."
+  exit_codes:
+    - code: 0
+      meaning: "Success."
+    - code: 1
+      meaning: "Usage / precondition failure."
+    - code: 2
+      meaning: "Underlying git, filesystem, validation, or IO failure."
+
+behavior:
+  steps:
+    - "Parse `patch emit <FEATURE_ID>`."
+    - "Validate repository and Spec Kit presence without requiring a clean working tree."
+    - "Resolve `.specify/specs/<FEATURE_ID>.spec.md` and `docs/features/<FEATURE_ID>/contract.yaml`."
+    - "Detect untracked files and print a warning if any exist."
+    - "Run `git diff --binary HEAD` to capture staged and unstaged tracked changes plus staged newly created files."
+    - "Fail if the diff is empty."
+    - "Ensure `docs/features/<FEATURE_ID>/patches/` exists."
+    - "Generate the patch artifact at `docs/features/<FEATURE_ID>/patches/<FEATURE_ID>.patch`."
+    - "Ensure the patch artifact does not include itself."
+    - "Validate the patch with `git apply --check <patch_file>`."
+    - "Print patch path, changed file count, insertions, and deletions."
+    - "Leave normal `specdrive implement <FEATURE_ID>` behavior unchanged."
+
+logic:
+  invariants:
+    - "Normal `implement` prompt generation must continue to require a clean working tree."
+    - "`patch emit` must not require a clean working tree."
+    - "`patch emit` must require a non-empty diff."
+    - "Untracked files must not be included automatically."
+    - "Staged newly created files must be included."
+    - "Patch output must not include itself."
+    - "SpecDrive must not apply, commit, merge, or otherwise enact the patch."
+    - "SpecDrive must not make network calls."
+    - "SpecDrive must not invoke AI APIs."
+  error_conditions:
+    - code: "E_NOT_GIT_REPO"
+      description: "Command is not run inside a git repository."
+      effect: "Fail with a clear precondition error."
+    - code: "E_SPECIFY_MISSING"
+      description: "`.specify/` is missing."
+      effect: "Fail with a clear precondition error."
+    - code: "E_SPEC_MISSING"
+      description: "Feature spec file is missing."
+      effect: "Fail with a clear precondition error."
+    - code: "E_CONTRACT_MISSING"
+      description: "Feature contract file is missing."
+      effect: "Fail with a clear precondition error."
+    - code: "E_EMPTY_DIFF"
+      description: "`git diff --binary HEAD` returns no patch content."
+      effect: "Fail and explain that there are no implementation changes to emit."
+    - code: "E_PATCH_DIR_CREATE_FAILED"
+      description: "Feature-local patch directory cannot be created."
+      effect: "Fail with an IO error."
+    - code: "E_PATCH_WRITE_FAILED"
+      description: "Patch file cannot be written."
+      effect: "Fail with an IO error."
+    - code: "E_PATCH_VALIDATION_FAILED"
+      description: "Generated patch fails `git apply --check`."
+      effect: "Fail and leave the patch artifact available for inspection if it was written."
+
+filesystem:
+  creates_paths:
+    - "docs/features/<FEATURE_ID>/patches/"
+    - "docs/features/<FEATURE_ID>/patches/<FEATURE_ID>.patch"
+  reads_paths:
+    - ".specify/"
+    - ".specify/specs/<FEATURE_ID>.spec.md"
+    - "docs/features/<FEATURE_ID>/contract.yaml"
+    - "specdrive config file if configured"
+  copies_templates: []
+  must_not_modify:
+    - ".git/"
+    - ".specify/specs/<FEATURE_ID>.spec.md"
+    - "docs/features/<FEATURE_ID>/contract.yaml"
+    - "source files changed by implementation work"
+    - "git history"
+    - "Jira or external issue trackers"
+
+integrations:
+  tools:
+    - name: "git"
+      purpose: "Generate and validate implementation patch artifacts."
+    - name: "specify"
+      purpose: "Spec Kit scaffolding is assumed to exist via `.specify/`."
+
+git_safety:
+  require_clean_tree: false
+  allow_untracked: true
+  rationale: "`patch emit` intentionally runs after implementation changes exist. It must allow a dirty tree, require a non-empty diff, include staged new files, and warn about untracked files without adding them automatically."
+
+verification:
+  strategy: ["unit", "integration"]
+  test_cases:
+    - id: "TC-001"
+      requirement: "HLR-001"
+      type: "integration"
+      description: "With a non-empty tracked-file diff, running `specdrive patch emit F-006` writes `docs/features/F-006/patches/F-006.patch`."
+    - id: "TC-002"
+      requirement: "LLR-004"
+      type: "integration"
+      description: "Generated patch passes `git apply --check docs/features/F-006/patches/F-006.patch`."
+    - id: "TC-003"
+      requirement: "LLR-005"
+      type: "integration"
+      description: "Running `patch emit` with no diff fails clearly."
+    - id: "TC-004"
+      requirement: "LLR-006"
+      type: "integration"
+      description: "A staged newly created file is included in the emitted patch."
+    - id: "TC-005"
+      requirement: "LLR-007"
+      type: "integration"
+      description: "An untracked file triggers a warning and is not included in the emitted patch."
+    - id: "TC-006"
+      requirement: "LLR-008"
+      type: "integration"
+      description: "The generated patch file does not include itself when the patch directory is inside the repository."
+    - id: "TC-007"
+      requirement: "LLR-009"
+      type: "integration"
+      description: "Running `specdrive implement F-006` preserves existing prompt-generation behavior."
+    - id: "TC-008"
+      requirement: "LLR-010"
+      type: "unit"
+      description: "Patch emission code path does not call AI APIs, apply patches, create commits, create branches, or invoke network behavior."
+    - id: "TC-009"
+      requirement: "LLR-012"
+      type: "integration"
+      description: "Successful patch emission prints patch path, changed file count, insertions, and deletions."
+    - id: "TC-010"
+      requirement: "LLR-003"
+      type: "integration"
+      description: "If `docs/features/F-006/patches/` is missing, SpecDrive creates it before writing the patch."
+  coverage_expectations:
+    code: "statement"
+    notes: "Hit key branches, especially empty diff, untracked warning, staged new file inclusion, patch directory creation, patch validation failure, and normal prompt-generation preservation."
+
+reviews:
+  required: true
+  checklist:
+    - "Spec and contract agree."
+    - "Threat/impact notes make sense."
+    - "Invariants are enforced in code and tests."
+    - "`patch emit` does not weaken normal `implement` clean-tree behavior."
+    - "Untracked-file behavior is explicit and safe."
+    - "Patch artifact does not include itself."
+  status:
+    reviewed_by: ""
+    reviewed_at: ""
+
+ai_instructions:
+  - "Treat this contract as the source of truth."
+  - "Prioritize correctness and safety over cleverness."
+  - "Do not weaken invariants."
+  - "Do not add dependencies unless explicitly allowed."
+  - "Preserve existing `implement` prompt-generation behavior."
+  - "Implement `specdrive patch emit <FEATURE_ID>` as a first-class subcommand."
+  - "Use `git diff --binary HEAD` for patch emission."
+  - "Do not automatically add or include untracked files."
+  - "If anything is ambiguous, implement the safest conservative behavior."
