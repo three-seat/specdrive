@@ -269,8 +269,8 @@ reviews:
     - "Untracked-file behavior is explicit and safe."
     - "Patch artifact does not include itself."
   status:
-    reviewed_by: ""
-    reviewed_at: ""
+    reviewed_by: "three_seat"
+    reviewed_at: "05-26-2026"
 
 ai_instructions:
   - "Treat this contract as the source of truth."
