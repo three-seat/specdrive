@@ -3,6 +3,7 @@ use crate::bootstrap;
 use crate::draft;
 use crate::feature;
 use crate::implement;
+use crate::patch;
 
 pub fn run() -> Result<()> {
     let mut args = std::env::args().skip(1);
@@ -42,6 +43,23 @@ pub fn run() -> Result<()> {
             // Per F-003 contract: draft exits with specific codes (0, 1, or 2)
             draft::draft_feature(&feature_id)
         }
+        "patch" => {
+            let Some(action) = args.next() else {
+                return Err("patch requires an action (emit)".into());
+            };
+            match action.as_str() {
+                "emit" => {
+                    let Some(feature_id) = args.next() else {
+                        return Err("patch emit requires <FEATURE_ID>".into());
+                    };
+                    // Per F-006 contract: patch emit exits with specific codes (0, 1, or 2)
+                    patch::patch_emit_feature(&feature_id)
+                }
+                _ => {
+                    return Err(format!("unknown patch action: {}", action).into());
+                }
+            }
+        }
         "help" | "-h" | "--help" => {
             print_usage();
             Ok(())
@@ -61,5 +79,6 @@ fn print_usage() {
     eprintln!("  specdrive new-feature <FEATURE_ID> [--critical]");
     eprintln!("  specdrive implement <FEATURE_ID>");
     eprintln!("  specdrive draft <FEATURE_ID>");
+    eprintln!("  specdrive patch emit <FEATURE_ID>");
     eprintln!("  specdrive help");
 }

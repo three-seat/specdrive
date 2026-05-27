@@ -38,18 +38,10 @@ impl fmt::Display for ConfigError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ConfigError::ParseError { path, source } => {
-                write!(
-                    f,
-                    "failed to parse config file {}: {}",
-                    path, source
-                )
+                write!(f, "failed to parse config file {}: {}", path, source)
             }
             ConfigError::SafetyViolation { feature_id, reason } => {
-                write!(
-                    f,
-                    "invalid FEATURE_ID '{}': {}",
-                    feature_id, reason
-                )
+                write!(f, "invalid FEATURE_ID '{}': {}", feature_id, reason)
             }
             ConfigError::PatternMismatch {
                 feature_id,
@@ -152,7 +144,10 @@ pub fn validate_feature_id(feature_id: &str) -> Result<(), ConfigError> {
     }
 
     // Check for control characters or whitespace
-    if feature_id.chars().any(|c| c.is_control() || c.is_whitespace()) {
+    if feature_id
+        .chars()
+        .any(|c| c.is_control() || c.is_whitespace())
+    {
         return Err(ConfigError::SafetyViolation {
             feature_id: feature_id.to_string(),
             reason: "FEATURE_ID must not contain control characters or whitespace".to_string(),
@@ -169,7 +164,10 @@ pub fn validate_feature_id(feature_id: &str) -> Result<(), ConfigError> {
                 let regex = regex::Regex::new(&feature_naming.pattern).map_err(|e| {
                     ConfigError::ParseError {
                         path: CONFIG_PATH.to_string(),
-                        source: format!("invalid regex pattern '{}': {}", feature_naming.pattern, e),
+                        source: format!(
+                            "invalid regex pattern '{}': {}",
+                            feature_naming.pattern, e
+                        ),
                     }
                 })?;
 
@@ -350,11 +348,7 @@ naming:
 
         // Create invalid YAML
         fs::create_dir_all("docs/specdrive").unwrap();
-        fs::write(
-            "docs/specdrive/config.yaml",
-            "invalid: yaml: syntax: here:",
-        )
-        .unwrap();
+        fs::write("docs/specdrive/config.yaml", "invalid: yaml: syntax: here:").unwrap();
 
         // Should fail with parse error
         let result = validate_feature_id("F-001-bootstrap");
