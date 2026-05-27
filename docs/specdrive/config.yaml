@@ -1,5 +1,5 @@
-schema_version: 1
 
+schema_version: 1
 naming:
   feature:
     pattern: "^F-[0-9]{3}-[a-z0-9-]+$"

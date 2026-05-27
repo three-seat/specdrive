@@ -50,7 +50,8 @@ fn draft_feature_inner(feature_id: &str) -> std::result::Result<(), DraftError> 
     }
 
     // 2. Per F-005 contract: validate FEATURE_ID against safety rules and config pattern
-    config::validate_feature_id(feature_id).map_err(|e| DraftError::new(e.to_string(), e.exit_code()))?;
+    config::validate_feature_id(feature_id)
+        .map_err(|e| DraftError::new(e.to_string(), e.exit_code()))?;
 
     // 3. Preflight checks: git repo, .specify/, clean tree
     // Per F-004 refactor: use shared helper and map structured errors
