@@ -85,7 +85,7 @@ fn patch_emit_feature_inner(feature_id: &str) -> std::result::Result<(), PatchEr
 
     // 6. Run `git diff --binary HEAD` to capture all changes (LLR-001 from contract)
     let diff_output = Command::new("git")
-        .args(&["diff", "--binary", "HEAD"])
+        .args(["diff", "--binary", "HEAD"])
         .output()
         .map_err(|e| PatchError::new(format!("failed to run git diff: {}", e), 2))?;
 
@@ -143,7 +143,7 @@ fn patch_emit_feature_inner(feature_id: &str) -> std::result::Result<(), PatchEr
     let patch_dir_str = format!(":(exclude){}", patch_dir.display());
 
     let stash_output = Command::new("git")
-        .args(&[
+        .args([
             "stash",
             "push",
             "-m",
@@ -165,12 +165,12 @@ fn patch_emit_feature_inner(feature_id: &str) -> std::result::Result<(), PatchEr
 
     // Now validate the patch against clean HEAD
     let check_output = Command::new("git")
-        .args(&["apply", "--check", patch_file.to_str().unwrap()])
+        .args(["apply", "--check", patch_file.to_str().unwrap()])
         .output();
 
     // Restore the stashed changes if we stashed them
     if stash_applied {
-        let _ = Command::new("git").args(&["stash", "pop"]).output();
+        let _ = Command::new("git").args(["stash", "pop"]).output();
     }
 
     // Check validation result
@@ -202,7 +202,7 @@ fn patch_emit_feature_inner(feature_id: &str) -> std::result::Result<(), PatchEr
 /// Detects untracked files using git status
 fn detect_untracked_files() -> std::result::Result<Vec<String>, String> {
     let output = Command::new("git")
-        .args(&["status", "--porcelain"])
+        .args(["status", "--porcelain"])
         .output()
         .map_err(|e| format!("failed to run git status: {}", e))?;
 
@@ -256,7 +256,7 @@ fn filter_patch_from_diff(diff: &str, patch_file: &Path) -> String {
             let is_patch_file = line.contains(&*patch_path_str)
                 || relative_patch_path
                     .as_ref()
-                    .map_or(false, |p| line.contains(p));
+                    .is_some_and(|p| line.contains(p));
 
             if is_patch_file {
                 in_patch_file_block = true;

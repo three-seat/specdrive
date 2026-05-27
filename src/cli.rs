@@ -55,9 +55,7 @@ pub fn run() -> Result<()> {
                     // Per F-006 contract: patch emit exits with specific codes (0, 1, or 2)
                     patch::patch_emit_feature(&feature_id)
                 }
-                _ => {
-                    return Err(format!("unknown patch action: {}", action).into());
-                }
+                _ => Err(format!("unknown patch action: {}", action).into()),
             }
         }
         "help" | "-h" | "--help" => {
