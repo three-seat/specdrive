@@ -49,6 +49,7 @@ fn patch_emit_feature_inner(feature_id: &str) -> std::result::Result<(), PatchEr
     }
 
     // 2. Check .git/ exists (P-002 from contract: E_NOT_GIT_REPO)
+    // Per ADR-002 / F-007, .specify/ is no longer required.
     if !Path::new(".git").exists() {
         return Err(PatchError::new(
             "Not a git repository. Please run this command from the root of a git repo."
@@ -57,15 +58,7 @@ fn patch_emit_feature_inner(feature_id: &str) -> std::result::Result<(), PatchEr
         ));
     }
 
-    // 3. Check .specify/ exists (P-003 from contract: E_SPECIFY_MISSING)
-    if !Path::new(".specify").exists() {
-        return Err(PatchError::new(
-            ".specify/ directory not found. Please run 'specify init' first.".to_string(),
-            1,
-        ));
-    }
-
-    // 4. Resolve and validate spec and contract paths (P-004, P-005 from contract)
+    // 3. Resolve and validate spec and contract paths
     let feature_paths = fsutil::FeaturePaths::new(feature_id);
     feature_paths.validate().map_err(|e| {
         PatchError::new(format!("{}. Feature {} does not exist.", e, feature_id), 1)
@@ -104,10 +97,7 @@ fn patch_emit_feature_inner(feature_id: &str) -> std::result::Result<(), PatchEr
     }
 
     // 8. Ensure patch directory exists (LLR-003 from contract)
-    let patch_dir = PathBuf::from("docs")
-        .join("features")
-        .join(feature_id)
-        .join("patches");
+    let patch_dir = feature_paths.patches.clone();
 
     fs::create_dir_all(&patch_dir).map_err(|e| {
         PatchError::new(

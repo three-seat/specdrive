@@ -49,30 +49,41 @@ impl fmt::Display for TemplatePathError {
 
 impl std::error::Error for TemplatePathError {}
 
-/// Represents the canonical paths for a feature's spec and contract files.
-/// Per F-004 contract, provides construction and validation of feature paths.
+/// Represents the canonical paths for a feature's spec, contract, and
+/// patches under `docs/features/<FEATURE_ID>/`.
+///
+/// Per ADR-002 / F-007, all feature artifacts are co-located under the
+/// feature directory.
 #[derive(Debug)]
 pub struct FeaturePaths {
-    /// Path to the feature spec: .specify/specs/<FEATURE_ID>.spec.md
+    /// Path to the feature directory: docs/features/<FEATURE_ID>/
+    pub dir: PathBuf,
+    /// Path to the feature spec: docs/features/<FEATURE_ID>/spec.md
     pub spec: PathBuf,
     /// Path to the feature contract: docs/features/<FEATURE_ID>/contract.yaml
     pub contract: PathBuf,
+    /// Path to the feature patches directory: docs/features/<FEATURE_ID>/patches/
+    pub patches: PathBuf,
 }
 
 impl FeaturePaths {
     /// Constructs canonical feature paths for the given feature ID.
-    /// Per F-004 contract, paths are:
-    /// - spec: .specify/specs/<FEATURE_ID>.spec.md
+    /// Per ADR-002 / F-007, paths are:
+    /// - dir: docs/features/<FEATURE_ID>/
+    /// - spec: docs/features/<FEATURE_ID>/spec.md
     /// - contract: docs/features/<FEATURE_ID>/contract.yaml
+    /// - patches: docs/features/<FEATURE_ID>/patches/
     pub fn new(feature_id: &str) -> Self {
-        let spec = PathBuf::from(".specify")
-            .join("specs")
-            .join(format!("{}.spec.md", feature_id));
-        let contract = PathBuf::from("docs")
-            .join("features")
-            .join(feature_id)
-            .join("contract.yaml");
-        Self { spec, contract }
+        let dir = PathBuf::from("docs").join("features").join(feature_id);
+        let spec = dir.join("spec.md");
+        let contract = dir.join("contract.yaml");
+        let patches = dir.join("patches");
+        Self {
+            dir,
+            spec,
+            contract,
+            patches,
+        }
     }
 
     /// Validates that both spec and contract files exist.
@@ -153,11 +164,11 @@ impl OptionalDoc {
     }
 }
 
-/// Discovers the constitution file (.specify/memory/constitution.md).
-/// Per F-004 contract, returns presence + path or absence.
+/// Discovers the constitution file (docs/constitution.md).
+/// Per ADR-002 / F-007, the constitution lives under docs/.
 /// This helper never fails; it returns Absent if the file doesn't exist.
 pub fn find_constitution() -> OptionalDoc {
-    let path = PathBuf::from(".specify/memory/constitution.md");
+    let path = PathBuf::from("docs/constitution.md");
     if path.exists() {
         OptionalDoc::Present(path)
     } else {
@@ -261,13 +272,15 @@ mod tests {
     #[test]
     fn test_feature_paths_construction() {
         let paths = FeaturePaths::new("F-001-test");
-        assert_eq!(
-            paths.spec,
-            PathBuf::from(".specify/specs/F-001-test.spec.md")
-        );
+        assert_eq!(paths.dir, PathBuf::from("docs/features/F-001-test"));
+        assert_eq!(paths.spec, PathBuf::from("docs/features/F-001-test/spec.md"));
         assert_eq!(
             paths.contract,
             PathBuf::from("docs/features/F-001-test/contract.yaml")
+        );
+        assert_eq!(
+            paths.patches,
+            PathBuf::from("docs/features/F-001-test/patches")
         );
     }
 
@@ -276,20 +289,16 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let temp_path = temp.path();
 
-        // Change to temp directory
         let original_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(temp_path).unwrap();
 
-        // Create feature paths
-        fs::create_dir_all(".specify/specs").unwrap();
         fs::create_dir_all("docs/features/F-001-test").unwrap();
-        fs::write(".specify/specs/F-001-test.spec.md", "# Test").unwrap();
+        fs::write("docs/features/F-001-test/spec.md", "# Test").unwrap();
         fs::write("docs/features/F-001-test/contract.yaml", "test: true").unwrap();
 
         let paths = FeaturePaths::new("F-001-test");
         let result = paths.validate();
 
-        // Restore original directory
         std::env::set_current_dir(original_dir).unwrap();
 
         assert!(result.is_ok());
@@ -300,7 +309,6 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let temp_path = temp.path();
 
-        // Change to temp directory
         let original_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(temp_path).unwrap();
 
@@ -311,7 +319,6 @@ mod tests {
         let paths = FeaturePaths::new("F-001-test");
         let result = paths.validate();
 
-        // Restore original directory
         std::env::set_current_dir(original_dir).unwrap();
 
         assert!(result.is_err());
@@ -326,18 +333,16 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let temp_path = temp.path();
 
-        // Change to temp directory
         let original_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(temp_path).unwrap();
 
         // Create spec but not contract
-        fs::create_dir_all(".specify/specs").unwrap();
-        fs::write(".specify/specs/F-001-test.spec.md", "# Test").unwrap();
+        fs::create_dir_all("docs/features/F-001-test").unwrap();
+        fs::write("docs/features/F-001-test/spec.md", "# Test").unwrap();
 
         let paths = FeaturePaths::new("F-001-test");
         let result = paths.validate();
 
-        // Restore original directory
         std::env::set_current_dir(original_dir).unwrap();
 
         assert!(result.is_err());
@@ -425,23 +430,20 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let temp_path = temp.path();
 
-        // Change to temp directory
         let original_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(temp_path).unwrap();
 
-        // Create constitution
-        fs::create_dir_all(".specify/memory").unwrap();
-        fs::write(".specify/memory/constitution.md", "# Constitution").unwrap();
+        fs::create_dir_all("docs").unwrap();
+        fs::write("docs/constitution.md", "# Constitution").unwrap();
 
         let result = find_constitution();
 
-        // Restore original directory
         std::env::set_current_dir(original_dir).unwrap();
 
         assert!(matches!(result, OptionalDoc::Present(_)));
         assert_eq!(
             result.path(),
-            Some(PathBuf::from(".specify/memory/constitution.md").as_path())
+            Some(PathBuf::from("docs/constitution.md").as_path())
         );
     }
 

@@ -4,11 +4,15 @@
 
 ### I. Spec + Contract First (NON-NEGOTIABLE)
 Every non-trivial change must be defined by:
-- A feature spec in `.specify/specs/<FEATURE_ID>.spec.md`
+- A feature spec in `docs/features/<FEATURE_ID>/spec.md`
 - A feature contract in `docs/features/<FEATURE_ID>/contract.yaml`
 
 Code changes **must follow** the spec + contract, not the other way around.
 Specs and contracts are versioned in git and reviewed like code.
+
+Per ADR-002 / F-007, all feature artifacts are co-located under
+`docs/features/<FEATURE_ID>/`. SpecDrive no longer depends on Spec Kit or
+`.specify/` for normal operation.
 
 ### II. CLI-First, Simple, and Boring
 Specdrive is a **single binary CLI** with:
@@ -46,12 +50,11 @@ Human responsibilities:
 #### Defensive helpers (NON-NEGOTIABLE FOR CLI FLOWS)
 
 - Shared defensive helpers must be used instead of ad-hoc checks.
-- `utils::ensure_repo_and_specify_ready()` is the canonical preflight for “spec-aware” commands:
+- `utils::ensure_repo_ready()` is the canonical preflight for "spec-aware" commands:
   - Verifies we are in a git repo (`.git/` exists).
-  - Verifies Spec Kit is initialized (`.specify/` exists).
   - Verifies the working tree is clean according to `git_safety`.
-- Commands that depend on repo/spec state **must** call this helper (or its future equivalent), including:
-  - `bootstrap` (once refactored in F-004),
+- Per ADR-002 / F-007, this helper no longer requires `.specify/` to exist.
+- Commands that depend on repo state **must** call this helper (or its future equivalent), including:
   - `implement`,
   - `draft`,
   - and any future commands that read or write specs/contracts.
@@ -63,9 +66,9 @@ Human responsibilities:
    - `specdrive new-feature <FEATURE_ID> [--critical]`
    - Edit the generated spec + contract until they match the intended behavior.
 2. Commit spec + contract **before** AI-implemented code.
-3. Use AI (via Claude / Spec Kit) to implement or update code:
+3. Use AI to implement or update code:
    - AI must read:
-     - `.specify/specs/<FEATURE_ID>.spec.md`
+     - `docs/features/<FEATURE_ID>/spec.md`
      - `docs/features/<FEATURE_ID>/contract.yaml`
 4. Review and run tests; then commit code changes.
 
@@ -136,7 +139,7 @@ Rules:
 - Each assumption must have:
   - An `id` of the form `A-###` (for example: `A-001`, `A-002`, etc.).
   - A `text` field that describes an environmental or contextual condition that is **taken as given**, not something the command enforces at runtime.
-- Assumptions are things like: “we are in the repo root,” “Spec Kit has already been initialized,” “templates live in a given directory,” and so on.
+- Assumptions are things like: “we are in the repo root,” “the feature directory exists under `docs/features/`,” “templates live in `docs/templates/`,” and so on.
 - IDs must not be reused with different meanings within the same contract.
 - When adding new assumptions, use new IDs; do not renumber existing ones.
 
@@ -183,11 +186,14 @@ Rules:
 - Security:
   - No hard-coded secrets.
   - No network traffic from the CLI in v0.1.
-- Repo layout is stable:
-  - `.specify/` for specs/templates/memory
-  - `docs/features/` for contracts
-  - `docs/adrs/` for architecture decision records
-  - `src/` for Rust code
+- Repo layout (post-F-007, ADR-002):
+  - `docs/features/<FEATURE_ID>/spec.md` — feature spec
+  - `docs/features/<FEATURE_ID>/contract.yaml` — feature contract
+  - `docs/features/<FEATURE_ID>/patches/` — feature patches
+  - `docs/templates/` — SpecDrive-owned templates (`feature.spec.md`, contract templates)
+  - `docs/constitution.md` — this document
+  - `docs/adrs/` — architecture decision records
+  - `src/` — Rust code
 
 ## Governance
 
@@ -199,4 +205,4 @@ Rules:
 - ADRs are append-only:
   - Old ADRs are not rewritten; they are marked as superseded by newer ADRs when direction changes.
 
-**Version**: 0.1.0 | **Ratified**: 2025-12-29 | **Last Amended**: 2025-12-29
+**Version**: 0.2.0 | **Ratified**: 2025-12-29 | **Last Amended**: 2026-05-28

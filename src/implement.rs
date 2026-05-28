@@ -56,9 +56,9 @@ fn implement_feature_inner(feature_id: &str) -> std::result::Result<(), Implemen
     config::validate_feature_id(feature_id)
         .map_err(|e| ImplementError::new(e.to_string(), e.exit_code()))?;
 
-    // 3. Preflight checks: git repo, .specify/, clean tree
-    // Per F-004 refactor: use shared helper and map structured errors
-    utils::ensure_repo_and_specify_ready().map_err(|e| ImplementError::new(e.to_string(), 1))?;
+    // 3. Preflight checks: git repo + clean tree
+    // Per ADR-002 / F-007, .specify/ is no longer required.
+    utils::ensure_repo_ready().map_err(|e| ImplementError::new(e.to_string(), 1))?;
 
     // 4. Resolve and validate spec and contract paths
     // Per F-004 refactor: use FeaturePaths helper

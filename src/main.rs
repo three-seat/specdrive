@@ -5,11 +5,11 @@ mod cli;
 mod config;
 mod draft;
 mod feature;
+mod feature_spec;
 mod fsutil;
 mod git;
 mod implement;
 mod patch;
-mod specify;
 mod utils;
 
 fn main() {
