@@ -316,8 +316,8 @@ reviews:
     - "No prompts/ or outputs/ directories are introduced in F-007."
     - "Breaking change is documented for v0.3.0."
   status:
-    reviewed_by: ""
-    reviewed_at: ""
+    reviewed_by: "three_seat"
+    reviewed_at: "05-27-2026"
 
 ai_instructions:
   - "Treat this contract as the source of truth."
