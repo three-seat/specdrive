@@ -33,10 +33,6 @@
 - `docs/system-overview.md`, `docs/constitution.md`, and tests updated to describe the new layout.
 - ADR-002 records the architectural decision; ADR-001 assumptions about Spec Kit / `.specify/` are superseded by ADR-002.
 
-## v0.1.0 - 2026-02-06
-### Added
-- File-based configuration for SpecDrive (initial config format).
-- Configurable paths and defaults to support different repo layouts.
 ## v0.2.0 - 2026-05-27
 ### Added
 - Added first-class patch workflow:
@@ -78,4 +74,9 @@
 
 ### Notes
 - Repository-wide clippy/test stabilization remains future work and was intentionally kept out of F-006 scope.
+
+## v0.1.0 - 2026-02-06
+### Added
+- File-based configuration for SpecDrive (initial config format).
+- Configurable paths and defaults to support different repo layouts.
 
