@@ -1,10 +1,14 @@
-//! Bootstrap command: prepares an existing repo for specdrive usage.
+//! Bootstrap command: prepares a git repo for specdrive usage.
 //!
-//! Per F-001 contract, this command:
-//! - Verifies .git/ and .specify/ exist (exit 1 if not)
-//! - Creates standard directories if missing
+//! Per ADR-002 / F-007, bootstrap initializes only SpecDrive-owned directories
+//! and templates under `docs/`. SpecDrive no longer depends on Spec Kit or
+//! `.specify/`.
+//!
+//! Behavior:
+//! - Verifies `.git/` exists (exit 1 if not)
+//! - Creates standard SpecDrive directories if missing
 //! - Installs template files from embedded assets if missing
-//! - Never overwrites existing files (per LLR-007)
+//! - Never overwrites existing files
 //! - Exits with code 0 (success), 1 (precondition failure), or 2 (filesystem error)
 
 use std::fmt;
@@ -25,7 +29,7 @@ const FEATURE_CONTRACT_CRITICAL_TEMPLATE: &str =
 /// Bootstrap-specific errors with exit code semantics.
 #[derive(Debug)]
 pub enum BootstrapError {
-    /// Precondition failure (not a git repo, .specify/ missing) -> exit code 1
+    /// Precondition failure (not a git repo) -> exit code 1
     Precondition(String),
     /// Filesystem error (failed to create dir or write file) -> exit code 2
     Filesystem(String),
@@ -43,7 +47,6 @@ impl fmt::Display for BootstrapError {
 impl std::error::Error for BootstrapError {}
 
 impl BootstrapError {
-    /// Returns the exit code for this error per F-001 contract.
     pub fn exit_code(&self) -> i32 {
         match self {
             BootstrapError::Precondition(_) => 1,
@@ -54,7 +57,6 @@ impl BootstrapError {
 
 pub type Result<T> = std::result::Result<T, BootstrapError>;
 
-/// Summary of what was created vs skipped during bootstrap.
 #[derive(Default)]
 struct BootstrapSummary {
     created_dirs: Vec<String>,
@@ -86,55 +88,36 @@ impl BootstrapSummary {
     }
 }
 
-/// Main entry point for the bootstrap command.
 pub fn run() -> Result<()> {
-    // Per F-004 refactor: use shared helper for git/.specify checks
-    // Note: bootstrap doesn't require clean tree, so we only check git repo and .specify dir
-    verify_git_and_specify()?;
+    verify_git_repo()?;
 
     let mut summary = BootstrapSummary::default();
 
-    // Per F-001 contract: ensure standard directories exist
     ensure_directories(&mut summary)?;
-
-    // Per F-001 contract: install template files if missing (never overwrite per LLR-007)
     install_templates(&mut summary)?;
 
     summary.print();
     Ok(())
 }
 
-/// Verify that .git/ and .specify/ exist using shared helper.
-/// Per F-004 refactor, maps RepoReadinessError to BootstrapError with exit code 1.
-/// Note: bootstrap doesn't require clean tree, so we check git/specify existence manually.
-fn verify_git_and_specify() -> Result<()> {
-    // Check .git/ exists
+/// Per ADR-002 / F-007, bootstrap only requires that we are inside a git repo.
+/// `.specify/` is no longer required for normal SpecDrive operation.
+fn verify_git_repo() -> Result<()> {
     if !Path::new(".git").exists() {
         return Err(BootstrapError::Precondition(
             "Not a git repository. Please run this command from the root of a git repo."
                 .to_string(),
         ));
     }
-
-    // Check .specify/ exists
-    if !Path::new(".specify").exists() {
-        return Err(BootstrapError::Precondition(
-            ".specify/ directory not found. Please run 'specify init' first.".to_string(),
-        ));
-    }
-
     Ok(())
 }
 
-/// Ensure all required directories exist; per F-001 contract.
+/// Ensure all required SpecDrive-owned directories exist.
+///
+/// Per ADR-002 / F-007, bootstrap creates only `docs/`-rooted directories;
+/// it does not create feature-local `prompts/` or `outputs/` directories.
 fn ensure_directories(summary: &mut BootstrapSummary) -> Result<()> {
-    let dirs = [
-        ".specify/specs",
-        ".specify/templates",
-        "docs",
-        "docs/features",
-        "docs/templates",
-    ];
+    let dirs = ["docs", "docs/features", "docs/templates"];
 
     for dir in &dirs {
         let path = Path::new(dir);
@@ -150,23 +133,20 @@ fn ensure_directories(summary: &mut BootstrapSummary) -> Result<()> {
 }
 
 /// Install template files from embedded assets if they don't exist.
-/// Per F-001 LLR-007: never overwrite existing files.
+/// Never overwrites existing files.
 fn install_templates(summary: &mut BootstrapSummary) -> Result<()> {
-    // Template: .specify/templates/feature.spec.md
     write_template_if_missing(
-        ".specify/templates/feature.spec.md",
+        "docs/templates/feature.spec.md",
         FEATURE_SPEC_TEMPLATE,
         summary,
     )?;
 
-    // Template: docs/templates/feature.contract.minimal.yaml
     write_template_if_missing(
         "docs/templates/feature.contract.minimal.yaml",
         FEATURE_CONTRACT_MINIMAL_TEMPLATE,
         summary,
     )?;
 
-    // Template: docs/templates/feature.contract.critical.yaml
     write_template_if_missing(
         "docs/templates/feature.contract.critical.yaml",
         FEATURE_CONTRACT_CRITICAL_TEMPLATE,
@@ -176,7 +156,6 @@ fn install_templates(summary: &mut BootstrapSummary) -> Result<()> {
     Ok(())
 }
 
-/// Write a template file if it doesn't exist; skip if it does (per LLR-007).
 fn write_template_if_missing(
     path: &str,
     content: &str,
@@ -185,12 +164,10 @@ fn write_template_if_missing(
     let target = Path::new(path);
 
     if target.exists() {
-        // Per F-001 LLR-007: never overwrite existing files
         summary.skipped_files.push(path.to_string());
         return Ok(());
     }
 
-    // Ensure parent directory exists (should already be created by ensure_directories)
     if let Some(parent) = target.parent() {
         if !parent.exists() {
             fs::create_dir_all(parent).map_err(|e| {
@@ -202,7 +179,6 @@ fn write_template_if_missing(
         }
     }
 
-    // Write the template file
     fs::write(target, content).map_err(|e| {
         BootstrapError::Filesystem(format!("Failed to write template to {}: {}", path, e))
     })?;

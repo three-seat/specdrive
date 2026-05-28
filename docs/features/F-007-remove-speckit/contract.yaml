@@ -1,0 +1,333 @@
+schema_version: 1
+
+metadata:
+  id: "F-007"
+  title: "Feature-local artifact architecture"
+  status: "draft"
+  critical: true
+
+summary: |
+  Move SpecDrive to a feature-local artifact architecture where each feature owns its
+  spec, contract, and patch artifacts under docs/features/<FEATURE_ID>/.
+  This is critical because it removes the hard dependency on Spec Kit, simplifies
+  traceability, and establishes the artifact layout foundation for future auditability.
+
+scope:
+  product: "specdrive"
+  service: "specdrive-cli"
+  repo: "specdrive"
+  area: "spec"
+
+requirements:
+  high_level:
+    - id: "HLR-001"
+      text: "SpecDrive must use docs/features/<FEATURE_ID>/ as the canonical location for feature-local artifacts."
+    - id: "HLR-002"
+      text: "SpecDrive must remove Spec Kit and .specify/ as required runtime/preflight dependencies."
+    - id: "HLR-003"
+      text: "The SpecDrive repository must be reorganized during F-007 implementation to match the new feature-local layout."
+    - id: "HLR-004"
+      text: "SpecDrive documentation and tests must reflect the new canonical layout."
+
+  low_level:
+    - id: "LLR-001"
+      parent: "HLR-001"
+      text: "Feature specs must live at docs/features/<FEATURE_ID>/spec.md."
+    - id: "LLR-002"
+      parent: "HLR-001"
+      text: "Feature contracts must live at docs/features/<FEATURE_ID>/contract.yaml."
+    - id: "LLR-003"
+      parent: "HLR-001"
+      text: "Feature patches must live under docs/features/<FEATURE_ID>/patches/."
+    - id: "LLR-004"
+      parent: "HLR-001"
+      text: "new-feature must create docs/features/<FEATURE_ID>/spec.md, docs/features/<FEATURE_ID>/contract.yaml, and docs/features/<FEATURE_ID>/patches/."
+    - id: "LLR-005"
+      parent: "HLR-002"
+      text: "Normal SpecDrive operation must no longer require .specify/ to exist."
+    - id: "LLR-006"
+      parent: "HLR-002"
+      text: "Repo readiness checks must validate git and SpecDrive-owned paths instead of Spec Kit-owned paths."
+    - id: "LLR-007"
+      parent: "HLR-003"
+      text: "Existing specs must be moved in the repository from .specify/specs/<FEATURE_ID>.spec.md to docs/features/<FEATURE_ID>/spec.md."
+    - id: "LLR-008"
+      parent: "HLR-003"
+      text: "feature.spec.md must be moved in the repository from .specify/templates/feature.spec.md to docs/templates/feature.spec.md."
+    - id: "LLR-009"
+      parent: "HLR-003"
+      text: "constitution.md must be moved in the repository from .specify/memory/constitution.md to docs/constitution.md."
+    - id: "LLR-010"
+      parent: "HLR-003"
+      text: ".claude/ must be removed from the repository."
+    - id: "LLR-011"
+      parent: "HLR-003"
+      text: "F-007 must not add runtime migration commands, compatibility layers, or fallback resolution for .specify/specs/."
+    - id: "LLR-012"
+      parent: "HLR-004"
+      text: "README, system overview, ADR references, and tests must describe the new layout."
+    - id: "LLR-013"
+      parent: "HLR-004"
+      text: "The v0.3.0 changelog must document this as a breaking layout change."
+    - id: "LLR-014"
+      parent: "HLR-004"
+      text: "Any references to ADR-001 assumptions superseded by ADR-002 must be updated or clearly marked."
+
+assumptions:
+  - id: "A-001"
+    text: "Existing SpecDrive repository layout contains .specify/ and docs/ conventions before F-007 implementation."
+  - id: "A-002"
+    text: "Required tool git is installed."
+  - id: "A-003"
+    text: "Spec Kit may exist in older repositories but is no longer required after F-007."
+  - id: "A-004"
+    text: "This feature is allowed to make breaking layout changes because the project is still pre-1.0."
+  - id: "A-005"
+    text: "Migration is performed as repository file moves during the F-007 implementation branch; no runtime migration behavior is required."
+  - id: "A-006"
+    text: "ADR-002 is accepted and is the architectural authority for this feature."
+
+preconditions:
+  - id: "P-001"
+    text: "Command is run from repo root."
+  - id: "P-002"
+    text: "Current directory is inside a git repository."
+  - id: "P-003"
+    text: "Existing feature directories under docs/features/ are readable and writable."
+  - id: "P-004"
+    text: "Existing specs under .specify/specs/ are readable before repository file moves."
+  - id: "P-005"
+    text: "Target feature-local spec paths do not already contain conflicting files unless explicitly resolved during implementation."
+  - id: "P-006"
+    text: "ADR-002 exists at docs/adrs/ADR-002-feature-local-artifact-architecture.md."
+
+impact:
+  security:
+    confidentiality: "low"
+    integrity: "medium"
+    availability: "medium"
+    rationale: "Incorrect layout migration or path resolution could cause SpecDrive to read the wrong spec, miss contracts, overwrite artifacts, or break command behavior. The feature must remain local-only and avoid deleting user source code, modifying git history, or adding implicit compatibility logic."
+  privacy:
+    pii_involved: false
+    rationale: "The feature operates on local repository documentation, templates, and configuration artifacts and does not introduce collection or transmission of personal data."
+
+architecture:
+  related_docs:
+    - "docs/system-overview.md"
+    - "docs/constitution.md"
+    - "docs/adrs/ADR-001-specdrive-bootstrap-assumptions-and-responsibilities.md"
+    - "docs/adrs/ADR-002-feature-local-artifact-architecture.md"
+    - "docs/features/F-007/spec.md"
+  constraints:
+    - "ADR-002 is the architectural authority for this feature."
+    - "No secrets written to disk."
+    - "No network calls."
+    - "No AI API calls."
+    - "No git history mutation."
+    - "No deletion of user source code."
+    - "No runtime migration command."
+    - "No long-term compatibility layer for .specify/specs/."
+    - "No fallback spec resolution from .specify/specs/."
+    - "No creation of prompts/ or outputs/ directories in F-007."
+    - "No new crates unless explicitly justified and approved."
+
+cli:
+  command: "multiple existing commands"
+  args:
+    - name: "FEATURE_ID"
+      required: false
+      description: "Feature identifier used by new-feature, draft, implement, and patch emit."
+  flags:
+    - name: "--critical"
+      required: false
+      description: "Existing new-feature flag that should continue selecting the critical contract template."
+  description: "Update SpecDrive commands to use feature-local artifacts under docs/features/<FEATURE_ID>/ and remove the Spec Kit runtime dependency."
+  exit_codes:
+    - code: 0
+      meaning: "Success."
+    - code: 1
+      meaning: "Usage / precondition failure."
+    - code: 2
+      meaning: "Underlying filesystem, git, validation, or IO failure."
+
+behavior:
+  steps:
+    - "Move repository files directly as part of F-007 implementation; do not implement runtime migration tooling."
+    - "Move existing feature specs from .specify/specs/<FEATURE_ID>.spec.md to docs/features/<FEATURE_ID>/spec.md."
+    - "Move .specify/templates/feature.spec.md to docs/templates/feature.spec.md."
+    - "Move .specify/memory/constitution.md to docs/constitution.md."
+    - "Remove .claude/ from the repository."
+    - "Update feature path construction to use docs/features/<FEATURE_ID>/spec.md and docs/features/<FEATURE_ID>/contract.yaml."
+    - "Update bootstrap to initialize only SpecDrive-owned docs/templates paths and no longer require .specify/."
+    - "Update new-feature to create feature-local spec, contract, and patches directory."
+    - "Update draft to use feature-local spec and contract paths."
+    - "Update implement to read docs/features/<FEATURE_ID>/spec.md."
+    - "Update patch emit to continue writing under docs/features/<FEATURE_ID>/patches/."
+    - "Update repo readiness checks to validate git and SpecDrive-owned paths instead of Spec Kit readiness."
+    - "Update README, system overview, constitution references, ADRs, and tests to reflect the new layout."
+    - "Do not add compatibility or fallback path resolution for the legacy .specify/specs/ layout."
+
+logic:
+  invariants:
+    - "docs/features/<FEATURE_ID>/spec.md is the canonical feature spec path after F-007."
+    - "docs/features/<FEATURE_ID>/contract.yaml is the canonical feature contract path."
+    - "docs/features/<FEATURE_ID>/patches/ is the canonical feature patch directory."
+    - ".specify/ must not be required for normal SpecDrive operation."
+    - "new-feature must create feature-local spec, contract, and patches directory."
+    - "bootstrap must not require Spec Kit initialization."
+    - "bootstrap must not create feature-local prompts/ or outputs/ directories."
+    - "F-007 is a repository layout migration, not a runtime migration system."
+    - "SpecDrive must not add a migration subcommand in F-007."
+    - "SpecDrive must not add fallback resolution for .specify/specs/."
+    - "SpecDrive must not make network calls."
+    - "SpecDrive must not invoke AI APIs."
+    - "SpecDrive must not modify git history."
+  error_conditions:
+    - code: "E_NOT_GIT_REPO"
+      description: "Command is not run inside a git repository."
+      effect: "Fail with a clear precondition error."
+    - code: "E_FEATURE_SPEC_MISSING"
+      description: "Feature-local spec.md is missing when required."
+      effect: "Fail with a clear missing artifact error."
+    - code: "E_FEATURE_CONTRACT_MISSING"
+      description: "Feature-local contract.yaml is missing when required."
+      effect: "Fail with a clear missing artifact error."
+    - code: "E_TEMPLATE_MISSING"
+      description: "docs/templates/feature.spec.md or required contract template is missing."
+      effect: "Fail with a clear template error."
+    - code: "E_MIGRATION_CONFLICT"
+      description: "A target moved path already exists and would be overwritten."
+      effect: "Fail during implementation review rather than overwrite."
+    - code: "E_IO"
+      description: "Required file or directory cannot be read, created, moved, or written."
+      effect: "Fail with an actionable filesystem error."
+
+filesystem:
+  creates_paths:
+    - "docs/features/<FEATURE_ID>/spec.md"
+    - "docs/features/<FEATURE_ID>/contract.yaml"
+    - "docs/features/<FEATURE_ID>/patches/"
+    - "docs/templates/feature.spec.md"
+    - "docs/constitution.md"
+  reads_paths:
+    - ".specify/specs/<FEATURE_ID>.spec.md"
+    - ".specify/templates/feature.spec.md"
+    - ".specify/memory/constitution.md"
+    - "docs/features/<FEATURE_ID>/contract.yaml"
+    - "docs/templates/"
+    - "docs/system-overview.md"
+    - "docs/adrs/"
+  copies_templates:
+    - from: "docs/templates/feature.spec.md"
+      to: "docs/features/<FEATURE_ID>/spec.md"
+    - from: "docs/templates/feature.contract.minimal.yaml"
+      to: "docs/features/<FEATURE_ID>/contract.yaml"
+    - from: "docs/templates/feature.contract.critical.yaml"
+      to: "docs/features/<FEATURE_ID>/contract.yaml"
+  must_not_modify:
+    - ".git/"
+    - "git history"
+    - "user source code outside required SpecDrive implementation changes"
+    - "external issue trackers"
+    - "network resources"
+
+integrations:
+  tools:
+    - name: "git"
+      purpose: "Repository root detection and safety validation."
+    - name: "specify"
+      purpose: "Legacy Spec Kit layout may exist before repository file moves, but Spec Kit is no longer required after F-007."
+
+git_safety:
+  require_clean_tree: true
+  allow_untracked: false
+  rationale: "F-007 performs a breaking artifact-layout migration. It should run and be reviewed from a controlled git state so moved files, removed directories, and updated references are explicit and reversible."
+
+verification:
+  strategy: ["unit", "integration", "review"]
+  test_cases:
+    - id: "TC-001"
+      requirement: "LLR-001"
+      type: "unit"
+      description: "Feature path construction returns docs/features/<FEATURE_ID>/spec.md for specs."
+    - id: "TC-002"
+      requirement: "LLR-002"
+      type: "unit"
+      description: "Feature path construction returns docs/features/<FEATURE_ID>/contract.yaml for contracts."
+    - id: "TC-003"
+      requirement: "LLR-003"
+      type: "unit"
+      description: "Feature path construction returns docs/features/<FEATURE_ID>/patches/ for patches."
+    - id: "TC-004"
+      requirement: "LLR-004"
+      type: "integration"
+      description: "new-feature creates spec.md, contract.yaml, and patches/ under docs/features/<FEATURE_ID>/."
+    - id: "TC-005"
+      requirement: "LLR-005"
+      type: "integration"
+      description: "SpecDrive commands no longer fail solely because .specify/ is absent."
+    - id: "TC-006"
+      requirement: "LLR-007"
+      type: "review"
+      description: "Existing .specify/specs/<FEATURE_ID>.spec.md files were moved to docs/features/<FEATURE_ID>/spec.md during the F-007 implementation branch."
+    - id: "TC-007"
+      requirement: "LLR-008"
+      type: "review"
+      description: "feature.spec.md lives under docs/templates/ after repository file moves."
+    - id: "TC-008"
+      requirement: "LLR-009"
+      type: "review"
+      description: "constitution.md lives at docs/constitution.md after repository file moves."
+    - id: "TC-009"
+      requirement: "LLR-010"
+      type: "review"
+      description: ".claude/ is removed from the repository."
+    - id: "TC-010"
+      requirement: "LLR-011"
+      type: "review"
+      description: "No runtime migration command, compatibility layer, or .specify/specs fallback resolution was added."
+    - id: "TC-011"
+      requirement: "LLR-012"
+      type: "integration"
+      description: "README, system overview, ADR references, and tests describe the new layout."
+    - id: "TC-012"
+      requirement: "LLR-013"
+      type: "review"
+      description: "v0.3.0 changelog documents the breaking feature-local artifact layout change."
+    - id: "TC-013"
+      requirement: "LLR-014"
+      type: "review"
+      description: "ADR-001 references superseded by ADR-002 are updated or clearly marked."
+  coverage_expectations:
+    code: "statement"
+    notes: "Hit path construction, missing artifact failures, bootstrap behavior, new-feature behavior, and command behavior after .specify removal. Repository file moves are verified by review, not by runtime migration tests."
+
+reviews:
+  required: true
+  checklist:
+    - "Spec and contract agree."
+    - "ADR-002 is present and referenced."
+    - "Threat/impact notes make sense."
+    - "Invariants are enforced in code and tests."
+    - "Spec Kit dependency is removed from normal readiness checks."
+    - "All docs reference docs/features/<FEATURE_ID>/spec.md."
+    - "No runtime migration command was added."
+    - "No .specify/specs compatibility or fallback resolution was added."
+    - "No prompts/ or outputs/ directories are introduced in F-007."
+    - "Breaking change is documented for v0.3.0."
+  status:
+    reviewed_by: "three_seat"
+    reviewed_at: "05-27-2026"
+
+ai_instructions:
+  - "Treat this contract as the source of truth."
+  - "Read ADR-002 before implementation and treat it as architectural authority."
+  - "Prioritize correctness and safety over cleverness."
+  - "Do not weaken invariants."
+  - "Do not add dependencies unless explicitly allowed."
+  - "This is an intentional breaking change; do not preserve .specify/specs compatibility unless explicitly instructed."
+  - "Do not implement runtime migration tooling."
+  - "Move repository files directly as part of the F-007 implementation branch."
+  - "Do not create prompts/ or outputs/ directories in F-007."
+  - "Keep migration simple and explicit."
+  - "If anything is ambiguous, implement the safest conservative behavior."

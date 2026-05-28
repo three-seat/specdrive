@@ -2,27 +2,25 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-/// Helper to create a temporary test directory with git initialized
+/// Helper to create a temporary test directory with git initialized.
 fn setup_test_repo() -> tempfile::TempDir {
     let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
     let repo_path = temp_dir.path();
 
-    // Initialize git repo
     Command::new("git")
-        .args(&["init"])
+        .args(["init"])
         .current_dir(repo_path)
         .output()
         .expect("Failed to init git");
 
-    // Configure git for commits
     Command::new("git")
-        .args(&["config", "user.email", "test@example.com"])
+        .args(["config", "user.email", "test@example.com"])
         .current_dir(repo_path)
         .output()
         .expect("Failed to config git email");
 
     Command::new("git")
-        .args(&["config", "user.name", "Test User"])
+        .args(["config", "user.name", "Test User"])
         .current_dir(repo_path)
         .output()
         .expect("Failed to config git name");
@@ -30,7 +28,6 @@ fn setup_test_repo() -> tempfile::TempDir {
     temp_dir
 }
 
-/// Helper to run specdrive command in a directory
 fn run_specdrive(repo_path: &Path, args: &[&str]) -> (i32, String, String) {
     let output = Command::new(env!("CARGO_BIN_EXE_specdrive"))
         .args(args)
@@ -45,14 +42,60 @@ fn run_specdrive(repo_path: &Path, args: &[&str]) -> (i32, String, String) {
     (exit_code, stdout, stderr)
 }
 
-/// TC-002: If `.git/` is missing, the command prints a clear error and exits with code 1
+/// Minimal feature-local scaffolding under `docs/features/<id>/`.
+fn write_feature(repo_path: &Path, feature_id: &str, with_spec: bool, with_contract: bool) {
+    let feature_dir = repo_path.join("docs/features").join(feature_id);
+    fs::create_dir_all(&feature_dir).expect("Failed to create feature dir");
+
+    if with_spec {
+        fs::write(feature_dir.join("spec.md"), "# Test Spec").expect("Failed to write spec");
+    }
+    if with_contract {
+        fs::write(
+            feature_dir.join("contract.yaml"),
+            "schema_version: 1\nmetadata:\n  id: F-001",
+        )
+        .expect("Failed to write contract");
+    }
+}
+
+fn write_contract_templates(repo_path: &Path, minimal: bool, critical: bool) {
+    let templates = repo_path.join("docs/templates");
+    fs::create_dir_all(&templates).expect("Failed to create templates dir");
+    if minimal {
+        fs::write(
+            templates.join("feature.contract.minimal.yaml"),
+            "schema_version: 1",
+        )
+        .expect("Failed to write minimal template");
+    }
+    if critical {
+        fs::write(
+            templates.join("feature.contract.critical.yaml"),
+            "schema_version: 1",
+        )
+        .expect("Failed to write critical template");
+    }
+}
+
+fn git_commit_all(repo_path: &Path) {
+    Command::new("git")
+        .args(["add", "-A"])
+        .current_dir(repo_path)
+        .output()
+        .expect("Failed to git add");
+    Command::new("git")
+        .args(["commit", "-m", "Initial commit"])
+        .current_dir(repo_path)
+        .output()
+        .expect("Failed to git commit");
+}
+
+/// If `.git/` is missing, the command prints a clear error and exits with code 1.
 #[test]
 fn test_draft_without_git_repo() {
     let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
     let repo_path = temp_dir.path();
-
-    // Create .specify/ but no .git/
-    fs::create_dir_all(repo_path.join(".specify")).expect("Failed to create .specify");
 
     let (exit_code, _stdout, stderr) = run_specdrive(repo_path, &["draft", "F-001"]);
 
@@ -64,82 +107,40 @@ fn test_draft_without_git_repo() {
     );
 }
 
-/// TC-003: If `.specify/` is missing, the command prints a clear error suggesting `specify init` and exits with code 1
+/// Per F-007 LLR-005: draft must not fail solely because `.specify/` is absent.
 #[test]
-fn test_draft_without_specify_dir() {
+fn test_draft_without_specify_dir_succeeds() {
     let temp_dir = setup_test_repo();
     let repo_path = temp_dir.path();
 
-    // Git exists but no .specify/
-    let (exit_code, _stdout, stderr) = run_specdrive(repo_path, &["draft", "F-001"]);
+    // No .specify/ anywhere — only the new feature-local layout.
+    write_feature(repo_path, "F-001", true, true);
+    write_contract_templates(repo_path, true, true);
+    git_commit_all(repo_path);
 
-    assert_eq!(exit_code, 1);
+    let (exit_code, stdout, stderr) = run_specdrive(repo_path, &["draft", "F-001"]);
+
+    assert_eq!(exit_code, 0, "Expected success, stderr: {}", stderr);
     assert!(
-        stderr.contains("Spec Kit not initialized") || stderr.contains(".specify"),
-        "Expected .specify error, got: {}",
-        stderr
-    );
-    assert!(
-        stderr.contains("specify init"),
-        "Expected 'specify init' suggestion, got: {}",
-        stderr
+        stdout.contains("drafting/refining"),
+        "Expected drafting intro, got: {}",
+        stdout
     );
 }
 
-/// TC-004: If the working tree is dirty, the command prints an error and exits with code 1
+/// If the working tree is dirty, the command prints an error and exits with code 1.
 #[test]
 fn test_draft_with_dirty_tree() {
     let temp_dir = setup_test_repo();
     let repo_path = temp_dir.path();
 
-    // Create .specify/ and basic structure
-    fs::create_dir_all(repo_path.join(".specify/specs")).expect("Failed to create specs dir");
-    fs::create_dir_all(repo_path.join("docs/features/F-001"))
-        .expect("Failed to create feature dir");
-    fs::create_dir_all(repo_path.join("docs/templates")).expect("Failed to create templates dir");
+    write_feature(repo_path, "F-001", true, true);
+    write_contract_templates(repo_path, true, true);
+    git_commit_all(repo_path);
 
-    // Create spec and contract files
+    // Now modify a tracked file to make the tree dirty.
     fs::write(
-        repo_path.join(".specify/specs/F-001.spec.md"),
-        "# Test Spec",
-    )
-    .expect("Failed to write spec");
-    fs::write(
-        repo_path.join("docs/features/F-001/contract.yaml"),
-        "schema_version: 1\nmetadata:\n  id: F-001",
-    )
-    .expect("Failed to write contract");
-
-    // Create template files
-    fs::write(
-        repo_path.join("docs/templates/feature.contract.minimal.yaml"),
-        "schema_version: 1",
-    )
-    .expect("Failed to write minimal template");
-    fs::write(
-        repo_path.join("docs/templates/feature.contract.critical.yaml"),
-        "schema_version: 1",
-    )
-    .expect("Failed to write critical template");
-
-    // Create a dirty file (uncommitted change)
-    fs::write(repo_path.join("dirty.txt"), "dirty content").expect("Failed to write dirty file");
-
-    // Add and commit the essential files
-    Command::new("git")
-        .args(&["add", ".specify", "docs"])
-        .current_dir(repo_path)
-        .output()
-        .expect("Failed to git add");
-    Command::new("git")
-        .args(&["commit", "-m", "Initial commit"])
-        .current_dir(repo_path)
-        .output()
-        .expect("Failed to git commit");
-
-    // Now modify a tracked file to make tree dirty
-    fs::write(
-        repo_path.join(".specify/specs/F-001.spec.md"),
+        repo_path.join("docs/features/F-001/spec.md"),
         "# Modified Spec",
     )
     .expect("Failed to modify spec");
@@ -154,54 +155,21 @@ fn test_draft_with_dirty_tree() {
     );
 }
 
-/// TC-005: If the spec file is missing, the command prints an error including the spec path and exits with code 2
+/// If the spec file is missing, the command prints an error including the spec path and exits with code 2.
 #[test]
 fn test_draft_with_missing_spec() {
     let temp_dir = setup_test_repo();
     let repo_path = temp_dir.path();
 
-    // Create .specify/ but no spec file
-    fs::create_dir_all(repo_path.join(".specify/specs")).expect("Failed to create specs dir");
-    fs::create_dir_all(repo_path.join("docs/features/F-001"))
-        .expect("Failed to create feature dir");
-    fs::create_dir_all(repo_path.join("docs/templates")).expect("Failed to create templates dir");
-
-    // Create contract but not spec
-    fs::write(
-        repo_path.join("docs/features/F-001/contract.yaml"),
-        "schema_version: 1",
-    )
-    .expect("Failed to write contract");
-
-    // Create template files
-    fs::write(
-        repo_path.join("docs/templates/feature.contract.minimal.yaml"),
-        "schema_version: 1",
-    )
-    .expect("Failed to write minimal template");
-    fs::write(
-        repo_path.join("docs/templates/feature.contract.critical.yaml"),
-        "schema_version: 1",
-    )
-    .expect("Failed to write critical template");
-
-    // Commit to have clean tree
-    Command::new("git")
-        .args(&["add", "-A"])
-        .current_dir(repo_path)
-        .output()
-        .expect("Failed to git add");
-    Command::new("git")
-        .args(&["commit", "-m", "Initial commit"])
-        .current_dir(repo_path)
-        .output()
-        .expect("Failed to git commit");
+    write_feature(repo_path, "F-001", false, true);
+    write_contract_templates(repo_path, true, true);
+    git_commit_all(repo_path);
 
     let (exit_code, _stdout, stderr) = run_specdrive(repo_path, &["draft", "F-001"]);
 
     assert_eq!(exit_code, 2);
     assert!(
-        stderr.contains("spec file not found") || stderr.contains(".spec.md"),
+        stderr.contains("spec file not found") || stderr.contains("spec.md"),
         "Expected spec file not found error, got: {}",
         stderr
     );
@@ -212,48 +180,15 @@ fn test_draft_with_missing_spec() {
     );
 }
 
-/// TC-006: If the contract skeleton file is missing, the command prints an error including the contract path and exits with code 2
+/// If the contract is missing, the command prints an error including the contract path and exits with code 2.
 #[test]
 fn test_draft_with_missing_contract() {
     let temp_dir = setup_test_repo();
     let repo_path = temp_dir.path();
 
-    // Create .specify/ and spec file
-    fs::create_dir_all(repo_path.join(".specify/specs")).expect("Failed to create specs dir");
-    fs::create_dir_all(repo_path.join("docs/features/F-001"))
-        .expect("Failed to create feature dir");
-    fs::create_dir_all(repo_path.join("docs/templates")).expect("Failed to create templates dir");
-
-    // Create spec but not contract
-    fs::write(
-        repo_path.join(".specify/specs/F-001.spec.md"),
-        "# Test Spec",
-    )
-    .expect("Failed to write spec");
-
-    // Create template files
-    fs::write(
-        repo_path.join("docs/templates/feature.contract.minimal.yaml"),
-        "schema_version: 1",
-    )
-    .expect("Failed to write minimal template");
-    fs::write(
-        repo_path.join("docs/templates/feature.contract.critical.yaml"),
-        "schema_version: 1",
-    )
-    .expect("Failed to write critical template");
-
-    // Commit to have clean tree
-    Command::new("git")
-        .args(&["add", "-A"])
-        .current_dir(repo_path)
-        .output()
-        .expect("Failed to git add");
-    Command::new("git")
-        .args(&["commit", "-m", "Initial commit"])
-        .current_dir(repo_path)
-        .output()
-        .expect("Failed to git commit");
+    write_feature(repo_path, "F-001", true, false);
+    write_contract_templates(repo_path, true, true);
+    git_commit_all(repo_path);
 
     let (exit_code, _stdout, stderr) = run_specdrive(repo_path, &["draft", "F-001"]);
 
@@ -270,48 +205,16 @@ fn test_draft_with_missing_contract() {
     );
 }
 
-/// TC-007: If either contract template file is missing, the command prints an error including the template path and exits with code 2
+/// If either contract template file is missing, the command prints an error and exits with code 2.
 #[test]
 fn test_draft_with_missing_minimal_template() {
     let temp_dir = setup_test_repo();
     let repo_path = temp_dir.path();
 
-    // Create basic structure
-    fs::create_dir_all(repo_path.join(".specify/specs")).expect("Failed to create specs dir");
-    fs::create_dir_all(repo_path.join("docs/features/F-001"))
-        .expect("Failed to create feature dir");
-    fs::create_dir_all(repo_path.join("docs/templates")).expect("Failed to create templates dir");
-
-    // Create spec and contract
-    fs::write(
-        repo_path.join(".specify/specs/F-001.spec.md"),
-        "# Test Spec",
-    )
-    .expect("Failed to write spec");
-    fs::write(
-        repo_path.join("docs/features/F-001/contract.yaml"),
-        "schema_version: 1",
-    )
-    .expect("Failed to write contract");
-
-    // Create only critical template, not minimal
-    fs::write(
-        repo_path.join("docs/templates/feature.contract.critical.yaml"),
-        "schema_version: 1",
-    )
-    .expect("Failed to write critical template");
-
-    // Commit to have clean tree
-    Command::new("git")
-        .args(&["add", "-A"])
-        .current_dir(repo_path)
-        .output()
-        .expect("Failed to git add");
-    Command::new("git")
-        .args(&["commit", "-m", "Initial commit"])
-        .current_dir(repo_path)
-        .output()
-        .expect("Failed to git commit");
+    write_feature(repo_path, "F-001", true, true);
+    // Only critical template, not minimal.
+    write_contract_templates(repo_path, false, true);
+    git_commit_all(repo_path);
 
     let (exit_code, _stdout, stderr) = run_specdrive(repo_path, &["draft", "F-001"]);
 
@@ -328,81 +231,44 @@ fn test_draft_with_missing_minimal_template() {
     );
 }
 
-/// TC-001 & TC-009: Success case - prints a structured, path-based prompt that lists paths but does not inline contents
+/// Success case: prints a structured, path-based prompt that lists paths but does not inline contents.
 #[test]
 fn test_draft_success_with_basic_structure() {
     let temp_dir = setup_test_repo();
     let repo_path = temp_dir.path();
 
-    // Create full structure
-    fs::create_dir_all(repo_path.join(".specify/specs")).expect("Failed to create specs dir");
-    fs::create_dir_all(repo_path.join(".specify/memory")).expect("Failed to create memory dir");
-    fs::create_dir_all(repo_path.join("docs/features/F-001"))
-        .expect("Failed to create feature dir");
-    fs::create_dir_all(repo_path.join("docs/templates")).expect("Failed to create templates dir");
-    fs::create_dir_all(repo_path.join("docs/adrs")).expect("Failed to create adrs dir");
+    let feature_dir = repo_path.join("docs/features/F-001");
+    fs::create_dir_all(&feature_dir).expect("Failed to create feature dir");
 
-    // Create spec with distinctive content
     fs::write(
-        repo_path.join(".specify/specs/F-001.spec.md"),
+        feature_dir.join("spec.md"),
         "# Test Spec\n\nThis is DISTINCTIVE_SPEC_CONTENT that should NOT be inlined.",
     )
     .expect("Failed to write spec");
-
-    // Create contract with distinctive content
     fs::write(
-        repo_path.join("docs/features/F-001/contract.yaml"),
+        feature_dir.join("contract.yaml"),
         "schema_version: 1\nmetadata:\n  id: F-001\n# DISTINCTIVE_CONTRACT_CONTENT",
     )
     .expect("Failed to write contract");
 
-    // Create constitution
-    fs::write(
-        repo_path.join(".specify/memory/constitution.md"),
-        "# Constitution",
-    )
-    .expect("Failed to write constitution");
-
-    // Create system overview
+    fs::create_dir_all(repo_path.join("docs/adrs")).expect("Failed to create adrs dir");
+    fs::write(repo_path.join("docs/constitution.md"), "# Constitution")
+        .expect("Failed to write constitution");
     fs::write(
         repo_path.join("docs/system-overview.md"),
         "# System Overview",
     )
     .expect("Failed to write system overview");
-
-    // Create an ADR
     fs::write(repo_path.join("docs/adrs/ADR-001-test.md"), "# ADR-001")
         .expect("Failed to write ADR");
 
-    // Create template files
-    fs::write(
-        repo_path.join("docs/templates/feature.contract.minimal.yaml"),
-        "schema_version: 1\n# Minimal template",
-    )
-    .expect("Failed to write minimal template");
-    fs::write(
-        repo_path.join("docs/templates/feature.contract.critical.yaml"),
-        "schema_version: 1\n# Critical template",
-    )
-    .expect("Failed to write critical template");
-
-    // Commit to have clean tree
-    Command::new("git")
-        .args(&["add", "-A"])
-        .current_dir(repo_path)
-        .output()
-        .expect("Failed to git add");
-    Command::new("git")
-        .args(&["commit", "-m", "Initial commit"])
-        .current_dir(repo_path)
-        .output()
-        .expect("Failed to git commit");
+    write_contract_templates(repo_path, true, true);
+    git_commit_all(repo_path);
 
     let (exit_code, stdout, stderr) = run_specdrive(repo_path, &["draft", "F-001"]);
 
     assert_eq!(exit_code, 0, "Expected success, stderr: {}", stderr);
 
-    // Verify prompt structure
     assert!(
         stdout.contains("drafting/refining"),
         "Expected drafting intro, got: {}",
@@ -414,9 +280,8 @@ fn test_draft_success_with_basic_structure() {
         stdout
     );
 
-    // Verify it lists file paths
     assert!(
-        stdout.contains(".specify/specs/F-001.spec.md"),
+        stdout.contains("docs/features/F-001/spec.md"),
         "Expected spec path, got: {}",
         stdout
     );
@@ -426,7 +291,7 @@ fn test_draft_success_with_basic_structure() {
         stdout
     );
     assert!(
-        stdout.contains(".specify/memory/constitution.md"),
+        stdout.contains("docs/constitution.md"),
         "Expected constitution path, got: {}",
         stdout
     );
@@ -451,7 +316,7 @@ fn test_draft_success_with_basic_structure() {
         stdout
     );
 
-    // Verify it does NOT inline the distinctive content (TC-009)
+    // Per spec: prompt does not inline spec/contract contents.
     assert!(
         !stdout.contains("DISTINCTIVE_SPEC_CONTENT"),
         "Prompt should not inline spec content"
@@ -461,57 +326,20 @@ fn test_draft_success_with_basic_structure() {
         "Prompt should not inline contract content"
     );
 
-    // Verify guidance is present
-    assert!(
-        stdout.contains("Guidance"),
-        "Expected guidance section, got: {}",
-        stdout
-    );
-    assert!(
-        stdout.contains("Guardrails"),
-        "Expected guardrails section, got: {}",
-        stdout
-    );
+    assert!(stdout.contains("Guidance"), "Expected guidance section");
+    assert!(stdout.contains("Guardrails"), "Expected guardrails section");
 }
 
-/// TC-008: If header and footer files exist, their contents appear in the prompt
+/// If header and footer files exist, their contents appear in the prompt.
 #[test]
 fn test_draft_with_header_and_footer() {
     let temp_dir = setup_test_repo();
     let repo_path = temp_dir.path();
 
-    // Create full structure
-    fs::create_dir_all(repo_path.join(".specify/specs")).expect("Failed to create specs dir");
-    fs::create_dir_all(repo_path.join("docs/features/F-001"))
-        .expect("Failed to create feature dir");
-    fs::create_dir_all(repo_path.join("docs/templates")).expect("Failed to create templates dir");
+    write_feature(repo_path, "F-001", true, true);
+    write_contract_templates(repo_path, true, true);
+
     fs::create_dir_all(repo_path.join("docs/ai")).expect("Failed to create ai dir");
-
-    // Create spec and contract
-    fs::write(
-        repo_path.join(".specify/specs/F-001.spec.md"),
-        "# Test Spec",
-    )
-    .expect("Failed to write spec");
-    fs::write(
-        repo_path.join("docs/features/F-001/contract.yaml"),
-        "schema_version: 1",
-    )
-    .expect("Failed to write contract");
-
-    // Create template files
-    fs::write(
-        repo_path.join("docs/templates/feature.contract.minimal.yaml"),
-        "schema_version: 1",
-    )
-    .expect("Failed to write minimal template");
-    fs::write(
-        repo_path.join("docs/templates/feature.contract.critical.yaml"),
-        "schema_version: 1",
-    )
-    .expect("Failed to write critical template");
-
-    // Create header and footer
     fs::write(
         repo_path.join("docs/ai/draft-header.md"),
         "CUSTOM_HEADER_CONTENT\n",
@@ -523,119 +351,56 @@ fn test_draft_with_header_and_footer() {
     )
     .expect("Failed to write footer");
 
-    // Commit to have clean tree
-    Command::new("git")
-        .args(&["add", "-A"])
-        .current_dir(repo_path)
-        .output()
-        .expect("Failed to git add");
-    Command::new("git")
-        .args(&["commit", "-m", "Initial commit"])
-        .current_dir(repo_path)
-        .output()
-        .expect("Failed to git commit");
+    git_commit_all(repo_path);
 
     let (exit_code, stdout, stderr) = run_specdrive(repo_path, &["draft", "F-001"]);
 
     assert_eq!(exit_code, 0, "Expected success, stderr: {}", stderr);
 
-    // Verify header appears at the beginning
-    let lines: Vec<&str> = stdout.lines().collect();
     assert!(
-        lines
-            .iter()
-            .any(|line| line.contains("CUSTOM_HEADER_CONTENT")),
-        "Expected header content in prompt"
+        stdout.contains("CUSTOM_HEADER_CONTENT"),
+        "Expected header content"
     );
-
-    // Verify footer appears at the end
     assert!(
         stdout.contains("CUSTOM_FOOTER_CONTENT"),
-        "Expected footer content in prompt"
+        "Expected footer content"
     );
 
-    // Verify header comes before the main content
-    let header_pos = stdout.find("CUSTOM_HEADER_CONTENT");
-    let main_pos = stdout.find("drafting/refining");
-    assert!(
-        header_pos < main_pos,
-        "Header should appear before main content"
-    );
+    let header_pos = stdout.find("CUSTOM_HEADER_CONTENT").unwrap();
+    let main_pos = stdout.find("drafting/refining").unwrap();
+    let footer_pos = stdout.find("CUSTOM_FOOTER_CONTENT").unwrap();
 
-    // Verify footer comes after the main content
-    let footer_pos = stdout.find("CUSTOM_FOOTER_CONTENT");
-    assert!(
-        footer_pos > main_pos,
-        "Footer should appear after main content"
-    );
+    assert!(header_pos < main_pos, "Header should precede main content");
+    assert!(footer_pos > main_pos, "Footer should follow main content");
 }
 
-/// TC-010: Running the command does not create, modify, or delete any files (read-only)
+/// Running the command does not create, modify, or delete any files (read-only).
 #[test]
 fn test_draft_is_read_only() {
     let temp_dir = setup_test_repo();
     let repo_path = temp_dir.path();
 
-    // Create minimal structure
-    fs::create_dir_all(repo_path.join(".specify/specs")).expect("Failed to create specs dir");
-    fs::create_dir_all(repo_path.join("docs/features/F-001"))
-        .expect("Failed to create feature dir");
-    fs::create_dir_all(repo_path.join("docs/templates")).expect("Failed to create templates dir");
+    write_feature(repo_path, "F-001", true, true);
+    write_contract_templates(repo_path, true, true);
+    git_commit_all(repo_path);
 
-    fs::write(
-        repo_path.join(".specify/specs/F-001.spec.md"),
-        "# Test Spec",
-    )
-    .expect("Failed to write spec");
-    fs::write(
-        repo_path.join("docs/features/F-001/contract.yaml"),
-        "schema_version: 1",
-    )
-    .expect("Failed to write contract");
-    fs::write(
-        repo_path.join("docs/templates/feature.contract.minimal.yaml"),
-        "schema_version: 1",
-    )
-    .expect("Failed to write minimal template");
-    fs::write(
-        repo_path.join("docs/templates/feature.contract.critical.yaml"),
-        "schema_version: 1",
-    )
-    .expect("Failed to write critical template");
-
-    // Commit to have clean tree
-    Command::new("git")
-        .args(&["add", "-A"])
-        .current_dir(repo_path)
-        .output()
-        .expect("Failed to git add");
-    Command::new("git")
-        .args(&["commit", "-m", "Initial commit"])
-        .current_dir(repo_path)
-        .output()
-        .expect("Failed to git commit");
-
-    // Get initial git status
     let status_before = Command::new("git")
-        .args(&["status", "--porcelain"])
+        .args(["status", "--porcelain"])
         .current_dir(repo_path)
         .output()
         .expect("Failed to get git status");
 
-    // Run draft command
     let (exit_code, _stdout, stderr) = run_specdrive(repo_path, &["draft", "F-001"]);
     assert_eq!(exit_code, 0, "Expected success, stderr: {}", stderr);
 
-    // Get git status after
     let status_after = Command::new("git")
-        .args(&["status", "--porcelain"])
+        .args(["status", "--porcelain"])
         .current_dir(repo_path)
         .output()
         .expect("Failed to get git status");
 
-    // Verify no changes
     assert_eq!(
         status_before.stdout, status_after.stdout,
-        "Git status changed after draft command - command is not read-only!"
+        "Git status changed after draft command — command is not read-only!"
     );
 }

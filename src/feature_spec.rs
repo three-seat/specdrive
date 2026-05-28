@@ -1,14 +1,19 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use crate::{Result, fsutil, utils};
 
+/// Creates a feature spec under `docs/features/<FEATURE_ID>/spec.md` from the
+/// template at `docs/templates/feature.spec.md`. Idempotent: if the spec
+/// already exists, the existing path is returned without modification.
+///
+/// Per ADR-002 / F-007 the canonical feature spec lives in the feature-local
+/// directory; `.specify/` is no longer involved.
 pub fn ensure_feature_spec(feature_id: &str) -> Result<PathBuf> {
-    let template = Path::new(".specify")
-        .join("templates")
-        .join("feature.spec.md");
-    let dest = Path::new(".specify")
-        .join("specs")
-        .join(format!("{feature_id}.spec.md"));
+    let template = PathBuf::from("docs/templates/feature.spec.md");
+    let dest = PathBuf::from("docs")
+        .join("features")
+        .join(feature_id)
+        .join("spec.md");
 
     if dest.exists() {
         return Ok(dest);
