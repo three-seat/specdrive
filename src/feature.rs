@@ -51,7 +51,10 @@ pub fn new_feature(feature_id: &str, critical: bool) -> Result<()> {
 }
 
 fn default_title(feature_id: &str) -> String {
-    let s = feature_id.splitn(2, '-').nth(1).unwrap_or(feature_id);
+    let s = feature_id
+        .split_once('-')
+        .map(|(_, rest)| rest)
+        .unwrap_or(feature_id);
 
     s.replace('-', " ")
         .split_whitespace()

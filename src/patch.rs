@@ -2,7 +2,7 @@ use crate::Result;
 use crate::fsutil;
 use std::fmt;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
 /// Custom error type for the patch command with exit codes
@@ -309,6 +309,7 @@ fn parse_diff_stats(diff: &str) -> DiffStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     #[test]
     fn test_parse_diff_stats_empty() {

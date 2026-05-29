@@ -151,6 +151,7 @@ pub enum OptionalDoc {
 
 impl OptionalDoc {
     /// Returns true if the document is present.
+    #[allow(dead_code)]
     pub fn is_present(&self) -> bool {
         matches!(self, OptionalDoc::Present(_))
     }
@@ -218,20 +219,6 @@ pub fn find_adrs() -> Vec<PathBuf> {
     // Per F-004 contract, return deterministic sorted list
     adr_files.sort();
     adr_files
-}
-
-pub fn copy_template_once(from: &Path, to: &Path) -> Result<()> {
-    if !from.exists() {
-        return Err(format!("template missing: {}", from.display()).into());
-    }
-    if to.exists() {
-        return Err(format!("refusing to overwrite: {}", to.display()).into());
-    }
-    if let Some(parent) = to.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::copy(from, to)?;
-    Ok(())
 }
 
 /// Copy a UTF-8 text template to `to`, doing simple string replacements.

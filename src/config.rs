@@ -77,6 +77,8 @@ pub struct NamingConfig {
     #[serde(default)]
     pub example: Option<String>,
     /// Human-readable description of the naming convention
+    /// Reserved for future config introspection / UX improvements.
+    #[allow(dead_code)]
     #[serde(default)]
     pub description: Option<String>,
 }
@@ -85,6 +87,7 @@ pub struct NamingConfig {
 #[derive(Debug, Deserialize)]
 pub struct Config {
     /// Schema version (currently unused but reserved for future use)
+    #[allow(dead_code)]
     #[serde(default)]
     pub schema_version: Option<u32>,
     /// Naming conventions configuration
@@ -157,28 +160,23 @@ pub fn validate_feature_id(feature_id: &str) -> Result<(), ConfigError> {
     // Step 2: Load config and check pattern if present
     let config = Config::load()?;
 
-    if let Some(cfg) = config {
-        if let Some(naming) = cfg.naming {
-            if let Some(feature_naming) = naming.feature {
-                // Validate against the configured pattern
-                let regex = regex::Regex::new(&feature_naming.pattern).map_err(|e| {
-                    ConfigError::ParseError {
-                        path: CONFIG_PATH.to_string(),
-                        source: format!(
-                            "invalid regex pattern '{}': {}",
-                            feature_naming.pattern, e
-                        ),
-                    }
-                })?;
+    if let Some(cfg) = config
+        && let Some(naming) = cfg.naming
+        && let Some(feature_naming) = naming.feature
+    {
+        // Validate against the configured pattern
+        let regex =
+            regex::Regex::new(&feature_naming.pattern).map_err(|e| ConfigError::ParseError {
+                path: CONFIG_PATH.to_string(),
+                source: format!("invalid regex pattern '{}': {}", feature_naming.pattern, e),
+            })?;
 
-                if !regex.is_match(feature_id) {
-                    return Err(ConfigError::PatternMismatch {
-                        feature_id: feature_id.to_string(),
-                        pattern: feature_naming.pattern,
-                        example: feature_naming.example,
-                    });
-                }
-            }
+        if !regex.is_match(feature_id) {
+            return Err(ConfigError::PatternMismatch {
+                feature_id: feature_id.to_string(),
+                pattern: feature_naming.pattern,
+                example: feature_naming.example,
+            });
         }
     }
 

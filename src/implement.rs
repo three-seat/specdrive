@@ -91,34 +91,33 @@ fn implement_feature_inner(feature_id: &str) -> std::result::Result<(), Implemen
     })?;
 
     // 6. Check critical feature review gate
-    if let Some(metadata) = contract.get("metadata") {
-        if let Some(critical) = metadata.get("critical") {
-            if critical.as_bool().unwrap_or(false) {
-                // This is a critical feature - check review status
-                let reviewed_by = contract
-                    .get("reviews")
-                    .and_then(|r| r.get("status"))
-                    .and_then(|s| s.get("reviewed_by"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
+    if let Some(metadata) = contract.get("metadata")
+        && let Some(critical) = metadata.get("critical")
+        && critical.as_bool().unwrap_or(false)
+    {
+        // This is a critical feature - check review status
+        let reviewed_by = contract
+            .get("reviews")
+            .and_then(|r| r.get("status"))
+            .and_then(|s| s.get("reviewed_by"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
 
-                let reviewed_at = contract
-                    .get("reviews")
-                    .and_then(|r| r.get("status"))
-                    .and_then(|s| s.get("reviewed_at"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
+        let reviewed_at = contract
+            .get("reviews")
+            .and_then(|r| r.get("status"))
+            .and_then(|s| s.get("reviewed_at"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
 
-                if reviewed_by.is_empty() || reviewed_at.is_empty() {
-                    return Err(ImplementError::new(
-                        format!(
-                            "critical feature {} has not been reviewed: reviews.status.reviewed_by and reviews.status.reviewed_at must be populated",
-                            feature_id
-                        ),
-                        1,
-                    ));
-                }
-            }
+        if reviewed_by.is_empty() || reviewed_at.is_empty() {
+            return Err(ImplementError::new(
+                format!(
+                    "critical feature {} has not been reviewed: reviews.status.reviewed_by and reviews.status.reviewed_at must be populated",
+                    feature_id
+                ),
+                1,
+            ));
         }
     }
 

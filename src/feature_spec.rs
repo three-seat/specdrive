@@ -41,7 +41,10 @@ pub fn ensure_feature_spec(feature_id: &str) -> Result<PathBuf> {
 
 fn human_title_from_feature_id(feature_id: &str) -> String {
     // Example: "F-001-bootstrap" -> "Bootstrap"
-    let s = feature_id.splitn(2, '-').nth(1).unwrap_or(feature_id);
+    let s = feature_id
+        .split_once('-')
+        .map(|(_, rest)| rest)
+        .unwrap_or(feature_id);
 
     s.replace('-', " ")
         .split_whitespace()

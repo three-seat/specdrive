@@ -31,6 +31,17 @@ impl fmt::Display for DraftError {
 
 impl std::error::Error for DraftError {}
 
+struct DraftPromptContext<'a> {
+    feature_id: &'a str,
+    feature_paths: &'a fsutil::FeaturePaths,
+    template_paths: &'a fsutil::TemplatePaths,
+    system_overview: &'a fsutil::OptionalDoc,
+    constitution: &'a fsutil::OptionalDoc,
+    adr_files: &'a [PathBuf],
+    header: Option<&'a str>,
+    footer: Option<&'a str>,
+}
+
 /// Main entry point for the draft command
 pub fn draft_feature(feature_id: &str) -> Result<()> {
     // Convert all errors to DraftError to get proper exit codes
@@ -153,36 +164,28 @@ fn draft_feature_inner(feature_id: &str) -> std::result::Result<(), DraftError> 
     };
 
     // 8. Build and print the prompt
-    let prompt = build_draft_prompt(
+    let ctx = DraftPromptContext {
         feature_id,
-        &feature_paths,
-        &template_paths,
-        &constitution,
-        &system_overview,
-        &adr_files,
-        header.as_deref(),
-        footer.as_deref(),
-    );
+        feature_paths: &feature_paths,
+        template_paths: &template_paths,
+        system_overview: &system_overview,
+        constitution: &constitution,
+        adr_files: &adr_files,
+        header: header.as_deref(),
+        footer: footer.as_deref(),
+    };
+
+    let prompt = build_draft_prompt(&ctx);
 
     println!("{}", prompt);
 
     Ok(())
 }
 
-fn build_draft_prompt(
-    feature_id: &str,
-    feature_paths: &fsutil::FeaturePaths,
-    template_paths: &fsutil::TemplatePaths,
-    constitution: &fsutil::OptionalDoc,
-    system_overview: &fsutil::OptionalDoc,
-    adr_files: &[PathBuf],
-    header: Option<&str>,
-    footer: Option<&str>,
-) -> String {
+fn build_draft_prompt(ctx: &DraftPromptContext<'_>) -> String {
     let mut prompt = String::new();
 
-    // Optional header
-    if let Some(h) = header {
+    if let Some(h) = ctx.header {
         prompt.push_str(h);
         if !h.ends_with('\n') {
             prompt.push('\n');
@@ -190,55 +193,53 @@ fn build_draft_prompt(
         prompt.push('\n');
     }
 
-    // Built-in intro
     prompt.push_str(&format!(
         "You are drafting/refining the contract {} for feature {}.\n\n",
-        feature_paths.contract.display(),
-        feature_id
+        ctx.feature_paths.contract.display(),
+        ctx.feature_id
     ));
+
     prompt.push_str(
         "The spec, ADRs, constitution, and system overview define the behaviour and constraints.\n",
     );
     prompt.push_str("Use the appropriate contract template (minimal vs critical).\n\n");
 
-    // Files to read
     prompt.push_str("Files you MUST read before drafting the contract:\n");
     prompt.push_str(&format!(
         "- {} (feature spec)\n",
-        feature_paths.spec.display()
+        ctx.feature_paths.spec.display()
     ));
     prompt.push_str(&format!(
         "- {} (current or skeleton)\n",
-        feature_paths.contract.display()
+        ctx.feature_paths.contract.display()
     ));
 
-    if let Some(path) = constitution.path() {
+    if let Some(path) = ctx.constitution.path() {
         prompt.push_str(&format!("- {}\n", path.display()));
     }
 
-    if !adr_files.is_empty() {
+    if !ctx.adr_files.is_empty() {
         prompt.push_str("- Architecture Decision Records (ADRs):\n");
-        for adr in adr_files {
+        for adr in ctx.adr_files {
             prompt.push_str(&format!("  - {}\n", adr.display()));
         }
     }
 
-    if let Some(path) = system_overview.path() {
+    if let Some(path) = ctx.system_overview.path() {
         prompt.push_str(&format!("- {}\n", path.display()));
     }
 
     prompt.push_str(&format!(
         "- {} (minimal template)\n",
-        template_paths.minimal.display()
+        ctx.template_paths.minimal.display()
     ));
     prompt.push_str(&format!(
         "- {} (critical template)\n",
-        template_paths.critical.display()
+        ctx.template_paths.critical.display()
     ));
 
     prompt.push('\n');
 
-    // Guidance section
     prompt.push_str("Guidance for drafting the contract:\n");
     prompt.push_str(
         "- Map the spec's behavior, context, and acceptance criteria to the contract sections:\n",
@@ -256,7 +257,6 @@ fn build_draft_prompt(
     prompt.push_str("  - Add appropriate review expectations in reviews section\n");
     prompt.push('\n');
 
-    // Guardrails
     prompt.push_str("Guardrails:\n");
     prompt.push_str("- Do NOT weaken invariants or lower safety properties\n");
     prompt.push_str("- Do NOT change feature IDs or basic layout\n");
@@ -265,8 +265,7 @@ fn build_draft_prompt(
         "- Follow the contract template structure (minimal or critical as appropriate)\n",
     );
 
-    // Optional footer
-    if let Some(f) = footer {
+    if let Some(f) = ctx.footer {
         prompt.push('\n');
         if !prompt.ends_with('\n') {
             prompt.push('\n');
