@@ -168,15 +168,15 @@ fn write_template_if_missing(
         return Ok(());
     }
 
-    if let Some(parent) = target.parent() {
-        if !parent.exists() {
-            fs::create_dir_all(parent).map_err(|e| {
-                BootstrapError::Filesystem(format!(
-                    "Failed to create parent directory for {}: {}",
-                    path, e
-                ))
-            })?;
-        }
+    if let Some(parent) = target.parent()
+        && !parent.exists()
+    {
+        fs::create_dir_all(parent).map_err(|e| {
+            BootstrapError::Filesystem(format!(
+                "Failed to create parent directory {}: {e}",
+                parent.display()
+            ))
+        })?;
     }
 
     fs::write(target, content).map_err(|e| {

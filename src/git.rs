@@ -17,7 +17,7 @@ pub fn ensure_git_clean(allow_untracked: bool) -> Result<()> {
     ensure_git_repo()?;
 
     let output = Command::new("git")
-        .args(&["status", "--porcelain"])
+        .args(["status", "--porcelain"])
         .output()
         .map_err(|e| format!("failed to run git status: {e}"))?;
 
