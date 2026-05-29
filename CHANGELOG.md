@@ -1,4 +1,27 @@
 # Changelog
+## v0.3.1 - 2026-05-28
+
+### Fixed
+
+- Updated tests to reflect the feature-local artifact architecture introduced in v0.3.0.
+- Removed stale `.specify/` assumptions from test fixtures and validation logic.
+- Fixed path-resolution and fixture issues uncovered during the F-007 migration.
+
+### Changed
+
+- Refactored draft prompt generation to use a structured context object.
+- Simplified several internal code paths based on clippy recommendations.
+- Removed obsolete helper code and minor implementation debt.
+
+### Quality
+
+- `cargo build` passes.
+- `cargo clippy -- -D warnings` passes.
+- Full test suite passes.
+
+### Notes
+
+This is a stabilization release following the v0.3.0 architecture migration. No user-facing functionality was added.
 
 ## v0.3.0 - 2026-05-28
 ### Breaking changes
