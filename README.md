@@ -51,11 +51,7 @@ This keeps changes small, explicit, and auditable—whether code is written by a
 ## Feature lifecycle (high level)
 
 ```
-Idea
-  → Spec (drafted / reviewed)
-  → Contract (validated)
-  → Implementation (patch)
-  → Done
+  draft → contract → implement → patch → review → done
 ```
 
 SpecDrive enforces what artifacts must exist at each stage.
@@ -74,6 +70,13 @@ SpecDrive is designed to *align with* Secure Software Development Framework (SSD
 
 SpecDrive does not claim to make your project “SSDF compliant” by itself—compliance depends on your broader SDLC, policies, and operational controls.
 
+
+---
+
+## Research Direction
+SpecDrive is exploring traceability, verification, review, and change-control workflows inspired by practices used in high-assurance software development.
+One area of interest is understanding how SpecDrive's artifact model (specs, contracts, prompts, outputs, patches, reviews, and validation evidence) compares to traceability concepts found in standards such as DO-178C.
+This is an exploratory effort only. SpecDrive is not a compliance tool, has not been qualified for use in regulated environments, and makes no claims of compliance with DO-178C or any other standard.
 
 ---
 
@@ -187,6 +190,22 @@ SpecDrive calls agents, validates outputs, and decides what happens next.
 - Lifecycle model is stabilizing
 - Designed for real-world use with interrupted time and fatigue
 
+---
+## Roadmap
+Near-term 
+-  F-009: Chat export/import workflow
+-  F-010: Lifecycle state enforcement
+-  F-011: AI adapter interface
+
+Medium-term
+-   Prompt hashing and artifact lineage
+-   Multi-prompt feature implementation
+-   Structured patch metadata
+-   Contract/schema validation
+Long-term
+-   Audit-friendly release artifacts
+-   Traceability and verification workflows
+-   High-assurance software development support
 ---
 
 ## Who is this for?
