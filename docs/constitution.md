@@ -59,6 +59,62 @@ Human responsibilities:
   - `draft`,
   - and any future commands that read or write specs/contracts.
 
+### V. Artifacts Are Authoritative
+
+Artifacts are the durable, authoritative record of SpecDrive's state.
+Tools, agents, and AI systems are interchangeable. Artifacts are not.
+
+- **Canonical artifacts** (authoritative): spec, contract, manifest, review record.
+- **Derived artifacts** (reproducible): prompt, output, patch, release summary,
+  audit report.
+
+Canonical artifacts are versioned, reviewed, and committed. Derived artifacts
+are produced from canonical artifacts and can be reconstructed.
+
+### VI. SpecDrive Owns the Lifecycle
+
+SpecDrive owns:
+- Lifecycle state and transitions
+- Artifact validation
+- Advancement gates
+
+AI owns:
+- Artifact production only
+
+AI never advances lifecycle state, controls workflow, or runs SpecDrive commands.
+Autonomous orchestration, swarm behavior, and automatic state advancement are
+explicitly rejected.
+
+### VII. Repository Portability
+
+SpecDrive state must remain repository-local and fully reconstructable from
+version-controlled artifacts alone.
+
+No external databases, cloud services, agent memory, or out-of-band state.
+Cloning the repository must be sufficient to reconstruct the full feature
+history and artifact record.
+
+### VIII. Bounded AI Execution
+
+One prompt → one output → one patch.
+
+Complex features are decomposed into bounded contracts, each with a single
+focused prompt, output, and patch. Aggregate prompts producing aggregate
+patches are explicitly rejected.
+
+### IX. Traceability as a First-Class Goal
+
+Every change must be traceable from intent to implementation.
+
+```
+spec → contract → prompt → output → patch → review → release
+```
+
+Traceability is not a reporting feature. It is a governing constraint on
+how features are designed, implemented, and verified.
+
+---
+
 ## Development Workflow
 
 ### Feature Flow
@@ -79,6 +135,8 @@ Human responsibilities:
   - Describe CLI shape, behavior, invariants, and filesystem effects
 - `--critical` features use the maximal contract template and tighter rules.
 
+---
+
 ## Architecture Decision Records (ADRs)
 
 - Long-lived technical and process decisions are captured as ADRs under `docs/adrs/ADR-xxx-*.md`.
@@ -88,17 +146,19 @@ Human responsibilities:
   - Consequences
   - Status (proposed / accepted / superseded)
 - Features that implement or depend on an ADR should:
-  - Reference the ADR in their spec front-matter or context section (e.g. “Implements ADR-001”).
-  - Optionally be referenced back from the ADR (“Affected features: F-001, F-002…”).
+  - Reference the ADR in their spec front-matter or context section (e.g. "Implements ADR-001").
+  - Optionally be referenced back from the ADR ("Affected features: F-001, F-002…").
 
 Rules of thumb:
 - If it changes how specdrive is used across projects, or affects multiple future features, it probably deserves an ADR.
-- Minor internal refactors that don’t change behavior or external contracts generally do **not** need an ADR.
+- Minor internal refactors that don't change behavior or external contracts generally do **not** need an ADR.
 
 ADRs and specs/contracts:
 - ADRs set **direction and constraints**.
 - Feature specs + contracts describe **specific changes** within that direction.
 - If an ADR is superseded, affected future features should reference the newer ADR instead of editing old ones.
+
+---
 
 ## Requirements Structure (Contracts)
 
@@ -139,7 +199,7 @@ Rules:
 - Each assumption must have:
   - An `id` of the form `A-###` (for example: `A-001`, `A-002`, etc.).
   - A `text` field that describes an environmental or contextual condition that is **taken as given**, not something the command enforces at runtime.
-- Assumptions are things like: “we are in the repo root,” “the feature directory exists under `docs/features/`,” “templates live in `docs/templates/`,” and so on.
+- Assumptions are things like: "we are in the repo root," "the feature directory exists under `docs/features/`," "templates live in `docs/templates/`," and so on.
 - IDs must not be reused with different meanings within the same contract.
 - When adding new assumptions, use new IDs; do not renumber existing ones.
 
@@ -155,8 +215,8 @@ Rules:
   - An `id` of the form `P-###` (for example: `P-001`, `P-002`, etc.).
   - A `text` field that describes a condition that the command **actively checks and enforces**, failing fast if it is not met.
 - Preconditions should correspond to checks that result in usage or precondition errors, such as:
-  - “FEATURE_ID is a non-empty string.”
-  - “The command is run from the repository root.”
+  - "FEATURE_ID is a non-empty string."
+  - "The command is run from the repository root."
 - IDs must remain stable over time; do not renumber once a precondition is in use.
 - Preconditions should be enforced explicitly in code, not just implied.
 
@@ -178,11 +238,13 @@ Rules:
 - Test case IDs must be stable over time; do not renumber existing test cases.
 - AI-generated contracts must follow the `TC-###` naming convention and always link tests back to specific requirements via the `requirement` field.
 
+---
+
 ## Additional Constraints
 
 - Technology:
   - Rust, standard library first.
-  - No new crates without an explicit rationale in a feature contract (and ADR if it’s a cross-cutting choice).
+  - No new crates without an explicit rationale in a feature contract (and ADR if it's a cross-cutting choice).
 - Security:
   - No hard-coded secrets.
   - No network traffic from the CLI in v0.1.
@@ -195,14 +257,22 @@ Rules:
   - `docs/adrs/` — architecture decision records
   - `src/` — Rust code
 
+---
+
 ## Governance
 
-- This constitution is the top-level guidance for specdrive’s SDLC.
+- This constitution is the top-level guidance for specdrive's SDLC.
 - Any change that breaks these principles (e.g., adding network calls, changing the feature flow) must:
   - Be introduced via a feature spec + contract;
   - Be backed by an ADR when it has cross-cutting or long-term impact;
   - Update this constitution with a version bump and rationale.
 - ADRs are append-only:
   - Old ADRs are not rewritten; they are marked as superseded by newer ADRs when direction changes.
+- Constitution versioning is independent of CLI versioning. The constitution version reflects governance changes only.
 
-**Version**: 0.2.0 | **Ratified**: 2025-12-29 | **Last Amended**: 2026-05-28
+**Version**: 1.0.0 | **Ratified**: 2025-12-29 | **Last Amended**: 2026-06-02
+
+**1.0.0 changelog**: Added Sections V through IX formalizing five 
+architectural principles derived from project practice: artifact 
+authority, lifecycle ownership, repository portability, bounded AI 
+execution, and traceability as a governing constraint.

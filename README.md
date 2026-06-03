@@ -294,6 +294,13 @@ Future releases will add optional adapter interfaces for invoking external AI sy
   - Human approval gates at agent handoff boundaries
   - Explicit execution boundaries between planning and implementation agents
 
+- Intent graph commands (specdrive explain, specdrive history)
+  - specdrive explain <behavior>: why a behavior exists, traced from 
+    spec through contract, patch, and verification
+  - specdrive history <feature or behavior>: which product intentions 
+    shaped this code over time
+  - Requires complete artifact manifest and lineage chain
+  - Answers provenance of intent, not just provenance of code
 ---
 
 ## Who is this for?
