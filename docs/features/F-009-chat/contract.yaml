@@ -1,499 +1,519 @@
-  schema_version: 1
+schema_version: 1
 
-  metadata:
-    id: "F-009-chat"
-    title: "Chat Export/Import Workflow"
-    status: "draft"
-    critical: true
+metadata:
+  id: "F-009"
+  title: "Chat Export/Import Workflow"
+  status: "draft"
+  critical: true
 
-  summary: |
-    Adds `specdrive chat export` and `specdrive chat import` subcommands that
-    bridge SpecDrive's local artifact model and stateless AI chat tools.
-    Export assembles a self-contained, delimited context bundle from resolved
-    feature artifacts and prints it to stdout. Import reads a delimited AI
-    response from stdin, runs an all-or-nothing dry validation pass (including
-    strict path-safety checks), previews changes, and writes artifacts to the
-    feature directory only on explicit confirmation. Critical because import
-    parses untrusted AI output and may overwrite the canonical contract.yaml.
+summary: |
+  Add `specdrive chat export` and `specdrive chat import` subcommands that
+  bridge SpecDrive's artifact model and stateless AI chat tools. Export
+  assembles a self-contained, delimited context bundle from resolver-defined
+  feature artifacts and prints it to stdout. Import reads a delimited AI
+  response from stdin, performs an all-or-nothing dry validation pass, previews
+  changes, and writes artifacts only after user confirmation. This feature is
+  critical because import writes to a canonical artifact (contract.yaml) and
+  must reject path traversal, symlinks, and relative tricks before any write.
 
-  scope:
-    product: "specdrive"
-    service: "specdrive-cli"
-    repo: "specdrive"
-    area: "cli"
+scope:
+  product: "specdrive"
+  service: "specdrive-cli"
+  repo: "specdrive"
+  area: "cli"
 
-  requirements:
-    high_level:
-      - id: "HLR-001"
-        text: >
-          `specdrive chat export <draft|implement> <FEATURE_ID>` assembles a
-          self-contained, delimited context bundle from the resolved feature
-          artifacts and prints it to stdout for pasting into an external AI
-          chat tool.
-      - id: "HLR-002"
-        text: >
-          `specdrive chat import <draft|implement> <FEATURE_ID>` reads a
-          delimited AI response from stdin, previews the resulting changes, and
-          writes artifacts into the feature directory only after explicit user
-          confirmation.
-      - id: "HLR-003"
-        text: >
-          Import is path-safe: every imported FILE path must resolve under
-          `docs/features/<FEATURE_ID>/` using canonicalized paths; path
-          traversal sequences, relative tricks, and symlinks are rejected
-          before any filesystem write occurs.
-      - id: "HLR-004"
-        text: >
-          Import is all-or-nothing: a complete dry validation pass runs before
-          any filesystem modification, and if any validation fails nothing is
-          written.
-      - id: "HLR-005"
-        text: >
-          Draft import may replace only the canonical contract.yaml (after
-          validation and confirmation) and save a notes artifact; implement
-          import saves only a raw output artifact and never modifies source
-          code or patch artifacts. The feature never advances lifecycle state.
-      - id: "HLR-006"
-        text: >
-          Existing `draft` and `implement` command behavior is unchanged and no
-          new crate dependencies are introduced; the only refactor is the
-          extraction of shared resolver and output-numbering utilities.
-      - id: "HLR-007"
-        text: >
-          The feature is portable: it uses stdout/stdin only, with no clipboard,
-          no OS-specific APIs, and no display-server or network dependency, and
-          makes no network calls.
-    low_level:
-      - id: "LLR-001"
-        parent: "HLR-001"
-        text: >
-          Export validates that FEATURE_ID exists and has both spec.md and
-          contract.yaml, failing fast with a clear message otherwise.
-      - id: "LLR-002"
-        parent: "HLR-001"
-        text: >
-          Export obtains its file list solely from `resolve_draft_files()` or
-          `resolve_implement_files()`; it must not recursively discover any
-          additional files.
-      - id: "LLR-003"
-        parent: "HLR-001"
-        text: >
-          When a required context file (constitution, system overview) is
-          missing, export warns and continues without that file rather than
-          failing.
-      - id: "LLR-004"
-        parent: "HLR-001"
-        text: >
-          The export bundle contains, in order: `--- SPECDRIVE:BEGIN ---`,
-          `--- SPECDRIVE:NOTES ---` (empty), one
-          `--- SPECDRIVE:FILE <path> ---` block per resolved file with inlined
-          contents, a `--- SPECDRIVE:PROMPT ---` block containing the export
-          prompt, and `--- SPECDRIVE:END ---`. The export prompt references no
-          local paths and embeds the delimiter guardrail.
-      - id: "LLR-005"
-        parent: "HLR-001"
-        text: >
-          After printing the bundle, export prints the usage hint:
-          "Copy the above and paste into your AI chat tool."
-      - id: "LLR-006"
-        parent: "HLR-002"
-        text: >
-          Import prints a waiting message, then reads stdin lines until the
-          first `--- SPECDRIVE:END ---`; input processing terminates
-          immediately and any content after the first SPECDRIVE:END is ignored.
-      - id: "LLR-007"
-        parent: "HLR-002"
-        text: >
-          Import parses the delimited response, extracting the NOTES block if
-          present and each FILE block with its path and contents.
-      - id: "LLR-008"
-        parent: "HLR-002"
-        text: >
-          Import displays NOTES (if present) and a file-change preview with
-          change counts, then prompts `Apply? [y/N]:`; on rejection it exits
-          cleanly with nothing written.
-      - id: "LLR-009"
-        parent: "HLR-003"
-        text: >
-          For output paths that do not yet exist, import canonicalizes the
-          parent directory and validates the normalized relative path rather
-          than the full path, still requiring the result to fall under
-          `docs/features/<FEATURE_ID>/`.
-      - id: "LLR-010"
-        parent: "HLR-004"
-        text: >
-          The dry validation pass requires at least one FILE block; a response
-          with no FILE blocks is a hard failure with a malformed-response
-          message.
-      - id: "LLR-011"
-        parent: "HLR-004"
-        text: >
-          A missing `--- SPECDRIVE:END ---` is a hard failure with an
-          incomplete-paste message; nothing is written.
-      - id: "LLR-012"
-        parent: "HLR-004"
-        text: >
-          Draft import validates that imported content is parseable YAML and
-          contains the required top-level contract structure; full schema
-          validation is deferred to F-019. Implement import performs no content
-          validation.
-      - id: "LLR-013"
-        parent: "HLR-005"
-        text: >
-          On confirmation, draft import replaces
-          `docs/features/<FEATURE_ID>/contract.yaml` with the validated content
-          and, if a NOTES block is present, saves it to the next numbered
-          `docs/features/<FEATURE_ID>/outputs/notes-NNN.md`.
-      - id: "LLR-014"
-        parent: "HLR-005"
-        text: >
-          On confirmation, implement import saves raw output to the next
-          numbered `docs/features/<FEATURE_ID>/outputs/implement-NNN.raw.md`
-          and never modifies source code or patch artifacts.
-      - id: "LLR-015"
-        parent: "HLR-005"
-        text: >
-          A missing NOTES block must not produce an empty notes artifact.
-      - id: "LLR-016"
-        parent: "HLR-005"
-        text: >
-          Neither export nor import advances lifecycle state; lifecycle
-          advancement is the responsibility of F-010.
-      - id: "LLR-017"
-        parent: "HLR-006"
-        text: >
-          `resolve_draft_files()` and `resolve_implement_files()` are extracted
-          into `src/resolve.rs` as shared functions callable by both the
-          existing commands and the export commands; only minor call-site
-          changes are permitted in existing commands.
-      - id: "LLR-018"
-        parent: "HLR-006"
-        text: >
-          Output-file numbering is extracted into `src/fsutil.rs` as a reusable
-          utility that finds the highest existing zero-padded NNN matching the
-          target pattern in `outputs/` and uses NNN+1; gaps do not cause
-          overwrites (e.g. if 001 and 003 exist, 004 is used).
-      - id: "LLR-019"
-        parent: "HLR-006"
-        text: >
-          `resolve_draft_files()` returns spec.md, contract.yaml,
-          constitution.md, system-overview.md, all ADR files, and both contract
-          templates; `resolve_implement_files()` returns the same set excluding
-          the templates.
-      - id: "LLR-020"
-        parent: "HLR-007"
-        text: >
-          Bundle assembly and import parsing complete in under one second for
-          typical feature sizes, using standard-library string handling for
-          delimiter parsing and the already-present `serde_yaml` for draft
-          validation.
-
-  assumptions:
-    - id: "A-001"
-      text: "The command is run from the repository root and `.git/` is present."
-    - id: "A-002"
+requirements:
+  high_level:
+    - id: "HLR-001"
       text: >
-        Repo layout follows the post-F-007 conventions (ADR-0002): feature
-        artifacts under `docs/features/<FEATURE_ID>/`, templates under
-        `docs/templates/`, constitution at `docs/constitution.md`, ADRs under
-        `docs/adrs/`. SpecDrive does not depend on `.specify/`.
-    - id: "A-003"
+        Provide a `specdrive chat export <draft|implement> <FEATURE_ID>`
+        command that prints a self-contained, delimited context bundle to
+        stdout, inlining the contents of resolver-defined files so stateless
+        AI chat tools can operate without filesystem access.
+    - id: "HLR-002"
       text: >
-        The external AI chat tool returns its response in the SpecDrive
-        delimiter format described in the export prompt; SpecDrive does not
-        validate the AI's reasoning, only the structure and path safety of the
-        response.
-    - id: "A-004"
+        Provide a `specdrive chat import <draft|implement> <FEATURE_ID>`
+        command that reads a delimited AI response from stdin, previews
+        changes, and writes artifacts to the feature directory only after
+        explicit user confirmation.
+    - id: "HLR-003"
       text: >
-        `serde_yaml` is already a project dependency and is available for draft
-        import YAML validation.
-
-  preconditions:
-    - id: "P-001"
-      text: "Command is run from the repository root inside a git repository."
-    - id: "P-002"
-      text: "FEATURE_ID is a non-empty string naming an existing feature."
-    - id: "P-003"
+        Guarantee that import never writes outside
+        docs/features/<FEATURE_ID>/ and never modifies source code or patch
+        artifacts, rejecting unsafe paths before any filesystem modification.
+    - id: "HLR-004"
       text: >
-        For export and import, the feature directory
-        `docs/features/<FEATURE_ID>/` exists and contains spec.md and
-        contract.yaml; otherwise the command fails fast.
-    - id: "P-004"
+        Preserve existing draft and implement command behavior and introduce
+        no new crate dependencies, while extracting shared file-resolution and
+        output-numbering logic for reuse.
+    - id: "HLR-005"
       text: >
-        The subcommand mode is exactly one of `draft` or `implement`; any other
-        mode is a usage error.
+        Do not advance lifecycle state; this feature produces and replaces
+        artifacts only, leaving state transitions to F-010.
+  low_level:
+    - id: "LLR-001"
+      parent: "HLR-001"
+      text: >
+        Export validates that FEATURE_ID exists and has both spec.md and
+        contract.yaml, failing fast with a clear message if either is missing.
+    - id: "LLR-002"
+      parent: "HLR-001"
+      text: >
+        Export obtains its file list solely from resolve_draft_files() or
+        resolve_implement_files(); it performs no recursive or additional file
+        discovery.
+    - id: "LLR-003"
+      parent: "HLR-001"
+      text: >
+        Missing optional context files (constitution, system overview) produce
+        a warning and the bundle continues without them; missing spec or
+        contract is a hard failure.
+    - id: "LLR-004"
+      parent: "HLR-001"
+      text: >
+        The export bundle contains, in order: `--- SPECDRIVE:BEGIN ---`,
+        `--- SPECDRIVE:NOTES ---` (empty), one
+        `--- SPECDRIVE:FILE <path> ---` block per resolved file with inlined
+        contents, `--- SPECDRIVE:PROMPT ---` with the export prompt, and
+        `--- SPECDRIVE:END ---`, followed by a usage hint to stdout.
+    - id: "LLR-005"
+      parent: "HLR-001"
+      text: >
+        The export prompt provides files inline with no path references and
+        embeds a delimiter guardrail instructing the AI to respond in
+        SpecDrive delimited format.
+    - id: "LLR-006"
+      parent: "HLR-002"
+      text: >
+        Import reads stdin lines until the first `--- SPECDRIVE:END ---`;
+        processing terminates immediately and all content after the first
+        SPECDRIVE:END is ignored.
+    - id: "LLR-007"
+      parent: "HLR-002"
+      text: >
+        Import parses an optional NOTES block and each FILE block (path plus
+        contents), displays NOTES if present, shows a file-change preview with
+        change counts, and prompts `Apply? [y/N]:`.
+    - id: "LLR-008"
+      parent: "HLR-002"
+      text: >
+        On confirmation for draft import, replace
+        docs/features/<FEATURE_ID>/contract.yaml with validated content and,
+        if a NOTES block is present, save it to the next numbered
+        docs/features/<FEATURE_ID>/outputs/notes-NNN.md.
+    - id: "LLR-009"
+      parent: "HLR-002"
+      text: >
+        On confirmation for implement import, save raw output to the next
+        numbered docs/features/<FEATURE_ID>/outputs/implement-NNN.raw.md only.
+    - id: "LLR-010"
+      parent: "HLR-002"
+      text: >
+        On rejection (anything other than an affirmative answer), exit cleanly
+        and write nothing.
+    - id: "LLR-011"
+      parent: "HLR-003"
+      text: >
+        Import runs a complete dry validation pass before any filesystem
+        modification; if any validation fails, reject with a specific error
+        and write nothing (all-or-nothing).
+    - id: "LLR-012"
+      parent: "HLR-003"
+      text: >
+        Every imported FILE path must canonicalize to within
+        docs/features/<FEATURE_ID>/; path traversal sequences, relative
+        tricks, and symlinks are rejected. For output paths that do not yet
+        exist, canonicalize the parent directory and validate the normalized
+        relative path rather than the full path.
+    - id: "LLR-013"
+      parent: "HLR-003"
+      text: >
+        At least one FILE block must be present; a response with no FILE
+        blocks is a hard failure (malformed response). A response missing
+        `--- SPECDRIVE:END ---` is a hard failure (incomplete paste).
+    - id: "LLR-014"
+      parent: "HLR-003"
+      text: >
+        Draft import validates that imported content is parseable YAML and
+        contains the required top-level contract structure before writing;
+        full schema validation is deferred to F-019. Implement import performs
+        no content validation.
+    - id: "LLR-015"
+      parent: "HLR-003"
+      text: >
+        Implement import must never modify source code or patch artifacts; it
+        writes only under docs/features/<FEATURE_ID>/outputs/.
+    - id: "LLR-016"
+      parent: "HLR-004"
+      text: >
+        Extract resolve_draft_files() and resolve_implement_files() into
+        src/resolve.rs as shared functions callable by both the existing
+        draft/implement commands and the export commands; only minor
+        call-site changes are permitted.
+    - id: "LLR-017"
+      parent: "HLR-004"
+      text: >
+        Extract output-file numbering into src/fsutil.rs as a reusable
+        utility that finds the highest existing NNN matching the pattern in
+        outputs/ and uses NNN+1; gaps in the sequence must not cause
+        overwrites.
+    - id: "LLR-018"
+      parent: "HLR-004"
+      text: >
+        Introduce no new crate dependencies; use standard-library string
+        handling for delimiter parsing and the already-present serde_yaml for
+        draft import YAML validation.
+    - id: "LLR-019"
+      parent: "HLR-005"
+      text: >
+        Neither export nor import advances lifecycle state or modifies any
+        artifact outside the stated scope; missing NOTES blocks must not
+        produce an empty notes artifact.
 
-  impact:
-    security:
-      confidentiality: "low"
-      integrity: "medium"
-      rationale: >
-        Export only inlines local artifacts the user already owns into stdout
-        under explicit user action, so confidentiality impact is low. Import
-        parses untrusted AI output and can overwrite the canonical contract.yaml
-        and write into the feature directory; a path-safety or validation defect
-        could corrupt or escape the feature directory. Strict canonicalized
-        path validation, all-or-nothing dry validation, and explicit user
-        confirmation bound the integrity impact, and all writes remain
-        git-revertible.
-      availability: "low"
-    privacy:
-      pii_involved: false
-      rationale: "Operates only on local SpecDrive artifacts; no PII handled."
+assumptions:
+  - id: "A-001"
+    text: "The command is run from the repository root and .git/ is present."
+  - id: "A-002"
+    text: >
+      Repo layout follows the post-ADR-0002 / F-007 conventions: feature
+      artifacts under docs/features/<FEATURE_ID>/, templates under
+      docs/templates/. Spec Kit / .specify/ is not required.
+  - id: "A-003"
+    text: >
+      The pasted AI response uses the SpecDrive delimiter scheme
+      (SPECDRIVE:BEGIN/NOTES/FILE/PROMPT/END) as produced by the export
+      bundle.
+  - id: "A-004"
+    text: >
+      serde_yaml is already a project dependency and is available for draft
+      import YAML validation.
 
-  architecture:
-    related_docs:
-      - "docs/system-overview.md"
-      - "docs/constitution.md"
-      - "docs/adrs/ADR-0003-artifact-ownership-and-traceability.md"
-      - "docs/features/F-009-chat/spec.md"
-    constraints:
-      - "No new crate dependencies (Constitution II; ADR-0001)."
-      - "No network calls; stdout/stdin only, no clipboard, no OS-specific APIs (Constitution IV)."
-      - "No secrets written to disk."
-      - "All SpecDrive state remains repository-local and reconstructable (ADR-0003 §3)."
-      - "AI produces artifacts only; this feature never advances lifecycle state (ADR-0003 §2; Constitution VI)."
-      - "Canonical contract.yaml is replaced only after validation and confirmation; derived raw outputs are saved separately (ADR-0003 §1)."
-      - "Export context is determined solely by resolver functions; no recursive file discovery."
+preconditions:
+  - id: "P-001"
+    text: "Command is run from the repository root inside a git repository."
+  - id: "P-002"
+    text: "FEATURE_ID is a non-empty string identifying an existing feature."
+  - id: "P-003"
+    text: >
+      For export and import, docs/features/<FEATURE_ID>/spec.md and
+      docs/features/<FEATURE_ID>/contract.yaml exist; otherwise the command
+      fails fast.
+  - id: "P-004"
+    text: >
+      The export/import subcommand mode is one of `draft` or `implement`;
+      any other mode is a usage error.
 
-  cli:
-    command: "chat"
-    args: ["<export|import>", "<draft|implement>", "<FEATURE_ID>"]
-    flags: []
-    description: >
-      Export a self-contained delimited context bundle for an external AI chat
-      tool, or import a delimited AI response and write the resulting artifacts
-      after preview and confirmation.
-    exit_codes:
-      - code: 0
-        meaning: "Success (bundle printed, or import applied/cleanly rejected)."
-      - code: 1
-        meaning: "Usage or precondition failure (bad mode, FEATURE_ID not found, missing spec/contract, malformed or incomplete response, validation failure,
-  path-safety rejection)."
-      - code: 2
-        meaning: "Underlying IO failure (reading artifacts, reading stdin, or writing outputs)."
-
-  behavior:
-    steps:
-      - "export: validate FEATURE_ID exists and has spec.md and contract.yaml; fail fast otherwise."
-      - "export: call resolve_draft_files() or resolve_implement_files() to obtain the file list; perform no additional discovery."
-      - "export: warn and continue when an optional context file (constitution, system overview) is missing."
-      - "export: build the export prompt with files provided inline, no path references, and the delimiter guardrail embedded."
-      - "export: assemble the delimited bundle (BEGIN, NOTES, one FILE block per resolved file, PROMPT, END) and print it to stdout."
-      - "export: print the usage hint 'Copy the above and paste into your AI chat tool.'"
-      - "import: print the waiting message ('Paste AI response. Waiting for --- SPECDRIVE:END ---')."
-      - "import: read stdin lines until the first --- SPECDRIVE:END ---, then stop; ignore any content after it."
-      - "import: parse the response, extracting the NOTES block (if any) and each FILE block (path + contents)."
-      - "import: run the full dry validation pass before any write — require >=1 FILE block; canonicalize and confirm every FILE path resolves under
-  docs/features/<FEATURE_ID>/ (rejecting traversal, relative tricks, and symlinks); for non-existent output paths canonicalize the parent and validate the
-  normalized relative path; for draft, confirm parseable YAML with the required top-level contract structure."
-      - "import: if any validation fails, reject with a specific error and write nothing."
-      - "import: display NOTES (if present) and the file-change preview with change counts, then prompt 'Apply? [y/N]:'."
-      - "import (on confirm, draft): replace docs/features/<FEATURE_ID>/contract.yaml with the validated content; if NOTES present, save to the next numbered
-  outputs/notes-NNN.md."
-      - "import (on confirm, implement): save raw output to the next numbered outputs/implement-NNN.raw.md; never modify source code or patch artifacts."
-      - "import (on reject): exit cleanly with nothing written."
-
-  logic:
-    invariants:
-      - "Import performs a complete dry validation pass before any filesystem modification; behavior is all-or-nothing."
-      - "Every imported FILE path resolves under docs/features/<FEATURE_ID>/ after canonicalization; traversal sequences, relative tricks, and symlinks are
-  rejected before any write."
-      - "For output paths that do not yet exist, the parent directory is canonicalized and the normalized relative path is validated rather than the full path."
-      - "Implement import never modifies source code or patch artifacts; it only writes a raw output file under outputs/."
-      - "Draft import replaces the canonical contract.yaml only after successful validation and explicit user confirmation."
-      - "A missing NOTES block never produces an empty notes artifact."
-      - "Output file numbering uses the highest existing NNN+1; gaps never cause overwrites of existing files."
-      - "Export context is determined solely by the resolver functions; no recursive file discovery occurs."
-      - "Import ignores all content appearing after the first SPECDRIVE:END delimiter."
-      - "Neither command advances lifecycle state (deferred to F-010)."
-      - "Existing draft and implement command behavior is unchanged."
-      - "No new crate dependencies are introduced; no network calls are made."
-    error_conditions:
-      - code: "FEATURE_NOT_FOUND"
-        description: "FEATURE_ID does not correspond to an existing feature directory."
-        effect: "Fail fast with a clear message; exit code 1; nothing written."
-      - code: "SPEC_OR_CONTRACT_MISSING"
-        description: "spec.md or contract.yaml is missing for the feature."
-        effect: "Fail fast with a clear message; exit code 1; nothing written."
-      - code: "CONTEXT_FILE_MISSING"
-        description: "An optional context file (constitution, system overview) is missing during export."
-        effect: "Warn and continue, omitting the missing file from the bundle."
-      - code: "MISSING_END_DELIMITER"
-        description: "The pasted response does not contain --- SPECDRIVE:END ---."
-        effect: "Hard failure with an incomplete-paste message; exit code 1; nothing written."
-      - code: "NO_FILE_BLOCKS"
-        description: "The parsed response contains no SPECDRIVE:FILE blocks."
-        effect: "Hard failure with a malformed-response message; exit code 1; nothing written."
-      - code: "PATH_ESCAPE"
-        description: "A FILE path canonicalizes outside docs/features/<FEATURE_ID>/ (traversal, relative trick, or symlink)."
-        effect: "Reject with a clear message; exit code 1; nothing written."
-      - code: "DRAFT_YAML_INVALID"
-        description: "Draft import content is not parseable YAML or lacks the required top-level contract structure."
-        effect: "Reject with a specific error; exit code 1; nothing written (full schema validation deferred to F-019)."
-      - code: "USER_REJECTED"
-        description: "User answered no at the Apply? prompt."
-        effect: "Exit cleanly; exit code 0; nothing written."
-      - code: "IO_FAILURE"
-        description: "Reading artifacts/stdin or writing outputs fails."
-        effect: "Report the failure; exit code 2."
-
-  filesystem:
-    creates_paths:
-      - "docs/features/<FEATURE_ID>/outputs/notes-NNN.md"
-      - "docs/features/<FEATURE_ID>/outputs/implement-NNN.raw.md"
-    reads_paths:
-      - "docs/features/<FEATURE_ID>/spec.md"
-      - "docs/features/<FEATURE_ID>/contract.yaml"
-      - "docs/constitution.md"
-      - "docs/system-overview.md"
-      - "docs/adrs/"
-      - "docs/templates/feature.contract.minimal.yaml"
-      - "docs/templates/feature.contract.critical.yaml"
-      - "docs/features/<FEATURE_ID>/outputs/"
-    copies_templates:
-      - from: ""
-        to: ""
-    must_not_modify:
-      - "docs/features/<FEATURE_ID>/spec.md"
-      - "docs/constitution.md"
-      - "docs/system-overview.md"
-      - "docs/adrs/"
-      - "docs/templates/"
-      - "docs/features/<FEATURE_ID>/patches/"
-      - "src/ (source code is never modified by import)"
-      - "Existing draft and implement command behavior (only minor call-site changes for resolver extraction are permitted)"
-
-  integrations:
-    tools:
-      - name: "git"
-        purpose: "Working-tree checks via the shared repo-readiness helper; reversibility of writes."
-
-  git_safety:
-    require_clean_tree: true
-    allow_untracked: true
+impact:
+  security:
+    confidentiality: "low"
+    integrity: "high"
     rationale: >
-      Import mutates the canonical contract.yaml and writes derived outputs;
-      requiring a clean tree keeps every applied change isolated and trivially
-      git-revertible, consistent with the shared ensure_repo_ready() preflight
-      used by draft and implement. Untracked files (e.g. new outputs/) are
-      permitted.
+      Import writes to a canonical artifact (contract.yaml) and to the
+      outputs/ directory based on untrusted AI-produced content. A path
+      traversal, symlink, or relative-path escape could overwrite files
+      outside the feature directory, and a malformed contract could corrupt
+      the canonical artifact. Strict canonicalized path validation and an
+      all-or-nothing dry validation pass before any write are required to
+      keep integrity impact contained. Confidentiality impact is low because
+      the feature operates on local repository files only with no network or
+      secret handling.
+    availability: "low"
+  privacy:
+    pii_involved: false
+    rationale: "Operates only on local repository artifacts; no PII handled."
 
-  verification:
-    strategy: ["unit", "integration"]
-    test_cases:
-      - id: "TC-001"
-        requirement: "HLR-001"
-        type: "integration"
-        description: "chat export draft <FEATURE_ID> prints a valid delimited bundle containing all resolved draft files inlined with correct delimiters (AC-1)."
-      - id: "TC-002"
-        requirement: "HLR-001"
-        type: "integration"
-        description: "chat export implement <FEATURE_ID> prints a valid delimited bundle containing all resolved implement files inlined with correct delimiters
-  (AC-2)."
-      - id: "TC-003"
-        requirement: "LLR-004"
-        type: "unit"
-        description: "Export bundle contains SPECDRIVE:BEGIN, SPECDRIVE:NOTES, at least one SPECDRIVE:FILE block, SPECDRIVE:PROMPT, and SPECDRIVE:END in the
-  correct order (AC-3)."
-      - id: "TC-004"
-        requirement: "LLR-003"
-        type: "unit"
-        description: "Missing constitution/system overview causes a warning and the file is omitted, while export still succeeds."
-      - id: "TC-005"
-        requirement: "HLR-002"
-        type: "integration"
-        description: "chat import draft reads stdin until SPECDRIVE:END, displays notes and file preview, and writes contract.yaml plus a notes artifact on
-  confirmation (AC-4)."
-      - id: "TC-006"
-        requirement: "LLR-014"
-        type: "integration"
-        description: "chat import implement reads stdin until SPECDRIVE:END, displays preview, and saves only implement-NNN.raw.md on confirmation; no source or
-  patch files change (AC-5, AC-15)."
-      - id: "TC-007"
-        requirement: "LLR-011"
-        type: "unit"
-        description: "A response missing SPECDRIVE:END is rejected with a clear incomplete-paste message and nothing is written (AC-6)."
-      - id: "TC-008"
-        requirement: "HLR-003"
-        type: "unit"
-        description: "FILE paths using traversal sequences, relative tricks, or symlinks that resolve outside docs/features/<FEATURE_ID>/ are rejected with a clear
-  error before any write (AC-7)."
-      - id: "TC-009"
-        requirement: "LLR-009"
-        type: "unit"
-        description: "A non-existent output path is accepted only when its canonicalized parent and normalized relative path resolve under the feature directory
-  (AC-7)."
-      - id: "TC-010"
-        requirement: "LLR-012"
-        type: "unit"
-        description: "Draft import rejects content that is not parseable YAML or lacks the required top-level contract structure, writing nothing (AC-8)."
-      - id: "TC-011"
-        requirement: "LLR-015"
-        type: "unit"
-        description: "A response with no NOTES block does not create an empty notes artifact (AC-9)."
-      - id: "TC-012"
-        requirement: "LLR-018"
-        type: "unit"
-        description: "Output numbering finds the highest existing NNN and uses NNN+1; with 001 and 003 present, 004 is used and existing files are not overwritten
-  (AC-10)."
-      - id: "TC-013"
-        requirement: "HLR-006"
-        type: "integration"
-        description: "Existing draft and implement command output is unchanged after resolver extraction (AC-11)."
-      - id: "TC-014"
-        requirement: "HLR-006"
-        type: "unit"
-        description: "Build/dependency manifest shows no new crate dependencies introduced (AC-12)."
-      - id: "TC-015"
-        requirement: "LLR-017"
-        type: "unit"
-        description: "resolve_draft_files() and resolve_implement_files() are shared functions callable by both existing commands and export commands, returning
-  the documented file sets (AC-13, LLR-019)."
-      - id: "TC-016"
-        requirement: "HLR-004"
-        type: "integration"
-        description: "When any validation fails mid-response, the import makes no filesystem modifications (all-or-nothing) (AC-14)."
-      - id: "TC-017"
-        requirement: "LLR-002"
-        type: "unit"
-        description: "Export uses only the resolver-returned file list and performs no recursive discovery of additional files (AC-16)."
-      - id: "TC-018"
-        requirement: "LLR-006"
-        type: "unit"
-        description: "Import ignores all content appearing after the first SPECDRIVE:END delimiter (AC-17)."
-      - id: "TC-019"
-        requirement: "LLR-008"
-        type: "integration"
-        description: "Answering N (or anything other than y) at the Apply? prompt exits cleanly with nothing written."
-    coverage_expectations:
-      code: "statement"
-      notes: "Exercise failure paths in particular: path-escape rejection, missing END, no FILE blocks, invalid draft YAML, and the dry-validation all-or-nothing
-  guarantee."
+architecture:
+  related_docs:
+    - "docs/system-overview.md"
+    - "docs/constitution.md"
+    - "docs/adrs/ADR-0003-artifact-ownership-and-traceability.md"
+  constraints:
+    - "No secrets written to disk."
+    - "No network calls unless explicitly required and approved."
+    - "All SpecDrive state remains repository-local and reconstructable."
+    - "AI produces artifacts only; this feature must not advance lifecycle state unless explicitly specified."
+    - "No clipboard or OS-integration APIs; stdout/stdin only."
+    - "Must work on Linux, macOS, and Windows with no display-server dependency."
+    - "No new crate dependencies; standard library plus existing serde_yaml only."
+    - "Export context is determined solely by resolver functions; no recursive file discovery."
 
-  reviews:
-    required: true
-    checklist:
-      - "Spec and contract agree on commands, delimiters, and behavior."
-      - "Path-safety invariant (canonicalization under docs/features/<FEATURE_ID>/) is enforced in code and covered by tests, including the
-  non-existent-output-path case."
-      - "All-or-nothing dry validation is enforced before any write."
-      - "Implement import never touches source code or patch artifacts."
-      - "Draft import replaces contract.yaml only after validation and confirmation."
-      - "No new crate dependencies; no network calls; stdout/stdin only."
-      - "Existing draft/implement behavior is unchanged aside from permitted resolver call-site changes."
-      - "Feature does not advance lifecycle state (left to F-010)."
-      - "Threat/impact notes make sense for parsing untrusted AI output."
-    status:
-      reviewed_by: ""
-      reviewed_at: ""
+cli:
+  command: "chat"
+  args: ["<export|import>", "<draft|implement>", "<FEATURE_ID>"]
+  flags: []
+  description: >
+    Export assembles a delimited, self-contained context bundle from
+    resolver-defined feature files and prints it to stdout. Import reads a
+    delimited AI response from stdin, validates it, previews changes, and
+    writes artifacts under docs/features/<FEATURE_ID>/ on confirmation.
+  exit_codes:
+    - code: 0
+      meaning: "Success (bundle printed, or import applied/cleanly rejected by the user)."
+    - code: 1
+      meaning: >
+        Usage or precondition failure: feature not found, missing spec or
+        contract, invalid mode, missing SPECDRIVE:END, no FILE blocks, path
+        validation failure, or draft YAML/structure validation failure.
+    - code: 2
+      meaning: "Underlying IO failure while reading inputs or writing artifacts."
 
-  ai_instructions:
-    - "Treat this contract as the source of truth."
-    - "Prioritize correctness and safety over cleverness."
-    - "Do not weaken invariants, especially the path-safety and all-or-nothing dry-validation guarantees."
-    - "Do not add dependencies; use the standard library for delimiter parsing and the already-present serde_yaml for draft validation."
-    - "Do not modify specs, the constitution, ADRs, templates, source code, or patch artifacts during import."
-    - "Do not advance lifecycle state; that is F-010's responsibility."
-    - "Make all writes git-revertible and fail fast with clear, actionable error messages."
-    - "If anything is ambiguous, implement the safest conservative behavior and reject rather than write."
+behavior:
+  steps:
+    - "Export: validate FEATURE_ID exists and has spec.md and contract.yaml; fail fast otherwise."
+    - "Export: call resolve_draft_files() or resolve_implement_files() to obtain the file list; do no additional discovery."
+    - "Export: for missing optional context files (constitution, system overview), warn and continue; missing spec/contract is a hard failure."
+    - "Export: build the export prompt with files inline, no path references, and an embedded delimiter guardrail."
+    - "Export: assemble the delimited bundle (BEGIN, empty NOTES, one FILE block per resolved file, PROMPT, END) and print to stdout."
+    - "Export: print the usage hint 'Copy the above and paste into your AI chat tool.'"
+    - "Import: print the waiting message and read stdin lines until the first --- SPECDRIVE:END ---; terminate immediately and ignore any content after it."
+    - "Import: parse the optional NOTES block and each FILE block (path and contents)."
+    - "Import: run the full dry validation pass (>=1 FILE block; all paths canonicalize within docs/features/<FEATURE_ID>/; draft: parseable YAML with required top-level structure) before any write."
+    - "Import: if any validation fails, reject with a specific error and write nothing."
+    - "Import: display NOTES if present, show the file-change preview with change counts, and prompt 'Apply? [y/N]:'."
+    - "Import (draft, on confirm): replace contract.yaml with validated content and save NOTES to outputs/notes-NNN.md if a NOTES block is present."
+    - "Import (implement, on confirm): save raw output to outputs/implement-NNN.raw.md only; never touch source code or patch artifacts."
+    - "Import: on rejection, exit cleanly and write nothing."
+
+logic:
+  invariants:
+    - "Export reads only the files returned by the resolver functions; it performs no recursive or additional file discovery."
+    - "No write to the filesystem occurs unless the complete dry validation pass succeeds (all-or-nothing)."
+    - "Every imported FILE path resolves, after canonicalization, to a location within docs/features/<FEATURE_ID>/; traversal, relative tricks, and symlinks are rejected before any write."
+    - "For non-existent output paths, the parent directory is canonicalized and the normalized relative path is validated; the file is never written outside the feature directory."
+    - "Implement import never modifies source code or patch artifacts; it writes only under docs/features/<FEATURE_ID>/outputs/."
+    - "Draft import replaces contract.yaml only after successful YAML and top-level-structure validation and explicit user confirmation."
+    - "A missing NOTES block never produces an empty notes artifact."
+    - "Output file numbering uses highest-existing-NNN + 1; gaps in the sequence never cause an existing file to be overwritten."
+    - "Existing draft and implement command behavior is unchanged."
+    - "No new crate dependencies are introduced."
+    - "This feature does not advance lifecycle state."
+    - "Only the first --- SPECDRIVE:END --- terminates input; content after it is ignored."
+  error_conditions:
+    - id: "E-001"
+      when: "FEATURE_ID does not exist, or spec.md / contract.yaml is missing."
+      action: "Fail fast with a clear message; exit code 1. Nothing is written."
+    - id: "E-002"
+      when: "The export/import mode is not `draft` or `implement`."
+      action: "Report a usage error; exit code 1."
+    - id: "E-003"
+      when: "Import stdin contains no --- SPECDRIVE:END --- delimiter."
+      action: "Hard failure with an 'incomplete paste' message; exit code 1. Nothing is written."
+    - id: "E-004"
+      when: "Import response contains no FILE blocks."
+      action: "Hard failure with a 'malformed response' message; exit code 1. Nothing is written."
+    - id: "E-005"
+      when: "An imported FILE path does not canonicalize within docs/features/<FEATURE_ID>/ (traversal, relative trick, or symlink)."
+      action: "Reject with a clear path-rejection message before any write; exit code 1. Nothing is written."
+    - id: "E-006"
+      when: "Draft import content is not parseable YAML or lacks the required top-level contract structure."
+      action: "Reject with a specific validation error; exit code 1. Nothing is written. Full schema validation is deferred to F-019."
+    - id: "E-007"
+      when: "The user answers anything other than an affirmative to 'Apply? [y/N]:'."
+      action: "Exit cleanly with code 0; nothing is written."
+    - id: "E-008"
+      when: "An IO error occurs while reading inputs or writing confirmed artifacts."
+      action: "Report the IO failure; exit code 2."
+    - id: "E-009"
+      when: "An optional context file (constitution, system overview) is missing during export."
+      action: "Warn and continue assembling the bundle without that file; exit code 0."
+
+filesystem:
+  creates_paths:
+    - "docs/features/<FEATURE_ID>/outputs/notes-NNN.md (draft import, only when a NOTES block is present)"
+    - "docs/features/<FEATURE_ID>/outputs/implement-NNN.raw.md (implement import)"
+  reads_paths:
+    - "docs/features/<FEATURE_ID>/spec.md"
+    - "docs/features/<FEATURE_ID>/contract.yaml"
+    - "docs/constitution.md"
+    - "docs/system-overview.md"
+    - "docs/adrs/ADR-XXXX-*.md"
+    - "docs/templates/feature.contract.minimal.yaml"
+    - "docs/templates/feature.contract.critical.yaml"
+  copies_templates: []
+  must_not_modify:
+    - "docs/constitution.md"
+    - "docs/system-overview.md"
+    - "docs/adrs/"
+    - "docs/templates/"
+    - "docs/features/<FEATURE_ID>/spec.md"
+    - "src/ (source code)"
+    - "docs/features/<FEATURE_ID>/patches/"
+    - "Any path outside docs/features/<FEATURE_ID>/"
+
+integrations:
+  tools:
+    - name: "git"
+      purpose: "Working tree checks and repository readiness via ensure_repo_ready()."
+
+git_safety:
+  require_clean_tree: true
+  allow_untracked: true
+  rationale: >
+    Import mutates a canonical artifact (contract.yaml) and writes derived
+    outputs. Requiring a clean working tree via ensure_repo_ready() guarantees
+    every change made by this command is isolated and trivially reversible via
+    git, consistent with Constitution Section IV (Safety and Reversibility).
+    Export is read-only but shares the same spec-aware preflight for
+    consistency. Untracked files are allowed because newly created outputs/
+    artifacts may not yet be tracked.
+
+verification:
+  strategy: ["unit", "integration"]
+  test_cases:
+    - id: "TC-001"
+      requirement: "HLR-001"
+      type: "integration"
+      description: >
+        `chat export draft <FEATURE_ID>` prints a bundle to stdout containing
+        all resolved draft files inlined with BEGIN, NOTES, >=1 FILE, PROMPT,
+        and END delimiters in correct order; exit code 0.
+    - id: "TC-002"
+      requirement: "HLR-001"
+      type: "integration"
+      description: >
+        `chat export implement <FEATURE_ID>` prints a bundle containing all
+        resolved implement files inlined with correct delimiters; exit code 0.
+    - id: "TC-003"
+      requirement: "LLR-004"
+      type: "unit"
+      description: >
+        Bundle assembly emits SPECDRIVE:BEGIN, SPECDRIVE:NOTES, at least one
+        SPECDRIVE:FILE block, SPECDRIVE:PROMPT, and SPECDRIVE:END in the
+        correct order.
+    - id: "TC-004"
+      requirement: "LLR-002"
+      type: "unit"
+      description: >
+        Export uses only resolver-returned files and performs no recursive
+        file discovery, even when extra files exist in the feature directory.
+    - id: "TC-005"
+      requirement: "LLR-003"
+      type: "integration"
+      description: >
+        Export with a missing constitution or system overview warns and still
+        produces a valid bundle without the missing file; missing spec or
+        contract fails fast with exit code 1.
+    - id: "TC-006"
+      requirement: "HLR-002"
+      type: "integration"
+      description: >
+        `chat import draft <FEATURE_ID>` reads stdin until SPECDRIVE:END,
+        displays notes and a file preview, and writes contract.yaml on an
+        affirmative confirmation.
+    - id: "TC-007"
+      requirement: "LLR-009"
+      type: "integration"
+      description: >
+        `chat import implement <FEATURE_ID>` reads stdin until SPECDRIVE:END
+        and, on confirmation, saves raw output to outputs/implement-NNN.raw.md
+        only, modifying no source or patch artifacts.
+    - id: "TC-008"
+      requirement: "LLR-013"
+      type: "integration"
+      description: >
+        Import of a response missing SPECDRIVE:END fails with a clear
+        incomplete-paste message and writes nothing; exit code 1.
+    - id: "TC-009"
+      requirement: "LLR-013"
+      type: "integration"
+      description: >
+        Import of a response with no FILE blocks fails with a clear
+        malformed-response message and writes nothing; exit code 1.
+    - id: "TC-010"
+      requirement: "LLR-012"
+      type: "unit"
+      description: >
+        FILE paths using traversal (../), absolute escapes, or symlinks that
+        resolve outside docs/features/<FEATURE_ID>/ are rejected before any
+        write; a legitimate non-existent output path under the feature
+        directory is accepted via parent-directory canonicalization.
+    - id: "TC-011"
+      requirement: "LLR-014"
+      type: "integration"
+      description: >
+        Draft import of content that is not parseable YAML, or that lacks the
+        required top-level contract structure, is rejected with a specific
+        error and nothing is written.
+    - id: "TC-012"
+      requirement: "LLR-019"
+      type: "integration"
+      description: >
+        Import with no NOTES block does not create an empty notes artifact.
+    - id: "TC-013"
+      requirement: "LLR-017"
+      type: "unit"
+      description: >
+        Output numbering returns highest-existing-NNN + 1; with 001 and 003
+        present it returns 004 and does not overwrite existing files.
+    - id: "TC-014"
+      requirement: "HLR-004"
+      type: "integration"
+      description: >
+        Existing draft and implement command behavior is unchanged after
+        resolver extraction (golden-output / regression check).
+    - id: "TC-015"
+      requirement: "LLR-018"
+      type: "unit"
+      description: "Build introduces no new crate dependencies (Cargo manifest unchanged except as allowed)."
+    - id: "TC-016"
+      requirement: "LLR-016"
+      type: "unit"
+      description: >
+        resolve_draft_files() and resolve_implement_files() are shared
+        functions returning the documented file sets and are callable by both
+        existing commands and export.
+    - id: "TC-017"
+      requirement: "LLR-011"
+      type: "integration"
+      description: >
+        When any validation fails mid-response, no FILE block is written
+        (all-or-nothing dry validation pass verified).
+    - id: "TC-018"
+      requirement: "LLR-015"
+      type: "integration"
+      description: >
+        Implement import never modifies source code or patch artifacts under
+        any input, only outputs/.
+    - id: "TC-019"
+      requirement: "LLR-006"
+      type: "unit"
+      description: >
+        Import stops at the first SPECDRIVE:END and ignores all content that
+        appears after it.
+    - id: "TC-020"
+      requirement: "LLR-010"
+      type: "integration"
+      description: "On a non-affirmative answer to 'Apply? [y/N]:', the command exits cleanly and writes nothing."
+  coverage_expectations:
+    code: "statement"
+    notes: "Hit key branches, especially path-validation rejection and dry-validation failure paths."
+
+reviews:
+  required: true
+  checklist:
+    - "Spec and contract agree on behavior, commands, and invariants."
+    - "Threat and impact assessment is accurate, especially path-traversal/symlink rejection."
+    - "Path canonicalization confines every write to docs/features/<FEATURE_ID>/, including non-existent output paths via parent-directory canonicalization."
+    - "Dry validation pass is complete and all-or-nothing; no partial writes are possible."
+    - "Implement import cannot modify source code or patch artifacts."
+    - "Draft import validates parseable YAML and required top-level structure before replacing the canonical contract.yaml."
+    - "Output numbering never overwrites existing files across sequence gaps."
+    - "Invariants are enforced in code and covered by tests."
+    - "No new crate dependencies unless explicitly approved."
+    - "Existing draft and implement command behavior is unchanged."
+    - "Lifecycle state is not advanced."
+    - "Feature does not modify canonical artifacts outside its stated scope."
+  status:
+    reviewed_by: ""
+    reviewed_at: ""
+
+ai_instructions:
+  - "Treat this contract as the source of truth."
+  - "Prioritize correctness and safety over cleverness."
+  - "Do not weaken invariants or lower safety properties; in particular, never relax path canonicalization or the all-or-nothing dry validation pass."
+  - "Do not add dependencies unless explicitly allowed in this contract."
+  - "Do not advance lifecycle state unless explicitly specified in this contract."
+  - "Do not modify specs, constitution, ADRs, or templates."
+  - "Export must use only resolver-returned files; never perform recursive file discovery."
+  - "Implement import must never modify source code or patch artifacts."
+  - "If anything is ambiguous, implement the safest conservative behavior and reject rather than write."

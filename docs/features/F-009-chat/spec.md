@@ -8,7 +8,7 @@ area: cli
 owners:
   - three-seat
 created_at: 2026-06-02
-contract: docs/features/F-009/contract.yaml
+contract: docs/features/F-009-chat/contract.yaml
 adrs:
   - ADR-0003
 ---
@@ -49,6 +49,10 @@ integration on the AI side.
   - Must work on any platform without display server or OS integration
   - Export context is determined solely by resolver functions — export
     commands must not recursively discover additional files
+- Relevant constitutional principles: Constitution Sections IV
+  (Safety and Reversibility), VI (SpecDrive Owns the Lifecycle),
+  VIII (Bounded AI Execution), IX (Traceability as a First-Class Goal).
+  See ADR-0003 for artifact ownership and lifecycle boundary decisions.
 
 # Behavior
 
@@ -106,8 +110,8 @@ Notes from AI:
   LLR-003 may need revision once filesystem behavior is confirmed.
 
 Files to be written:
-  docs/features/F-009/contract.yaml        (47 changes)
-  docs/features/F-009/outputs/notes-001.md (1 file)
+  docs/features/F-009-chat/contract.yaml        (47 changes)
+  docs/features/F-009-chat/outputs/notes-001.md (1 file)
 
 Apply? [y/N]:
 ```
@@ -141,13 +145,16 @@ Error cases:
 ## Detailed behavior — Import
 
 1. Print waiting message
-2. Read stdin lines until the first `--- SPECDRIVE:END ---` is
+2. Verify clean working tree — import requires a clean working tree
+   before any write to keep changes isolated and git-revertible.
+   Export skips this check.
+3. Read stdin lines until the first `--- SPECDRIVE:END ---` is
    encountered. Input processing terminates immediately. Any content
    appearing after the first SPECDRIVE:END is ignored.
-3. Parse delimited response:
+4. Parse delimited response:
    - Extract NOTES block if present
    - Extract each FILE block with path and contents
-4. Dry validation pass — all validations run before any filesystem
+5. Dry validation pass — all validations run before any filesystem
    modification:
    - At least one FILE block present
    - All FILE paths canonicalize to within
@@ -160,21 +167,19 @@ Error cases:
      and contains the required top-level contract structure. Full
      schema validation is deferred to F-019.
    - Implement import: no content validation
-5. If any validation fails — reject with specific error, nothing written
-6. Display NOTES to user if present
-7. Display file change preview with change counts
-8. Prompt `Apply? [y/N]:`
-9. On confirmation:
-   - Draft: replace `docs/features/<FEATURE_ID>/contract.yaml` with
-     validated content. Draft import replaces the canonical
-     contract.yaml only after successful validation and user
-     confirmation. Save notes to
-     `docs/features/<FEATURE_ID>/outputs/notes-001.md` if NOTES block
-     present.
-   - Implement: save raw to
-     `docs/features/<FEATURE_ID>/outputs/implement-001.raw.md`.
-     Implement import must never modify source code or patch artifacts.
-10. On rejection: exit cleanly, nothing written.
+6. If any validation fails — reject with specific error, nothing written
+7. Display NOTES to user if present
+8. Display file change preview with change counts
+9. Prompt `Apply? [y/N]:`
+10. On confirmation:
+    - Draft: replace `docs/features/<FEATURE_ID>/contract.yaml` with
+      validated content. Save notes to
+      `docs/features/<FEATURE_ID>/outputs/notes-NNN.md` if NOTES
+      block present.
+    - Implement: save raw to
+      `docs/features/<FEATURE_ID>/outputs/implement-NNN.raw.md`.
+      Implement import must never modify source code or patch artifacts.
+11. On rejection: exit cleanly, nothing written.
 
 ## Detailed behavior — File resolution
 
@@ -207,7 +212,7 @@ Output files use zero-padded incrementing numbers:
   pattern in the `outputs/` directory and using NNN+1. Gaps in the
   sequence do not cause overwrites — if 001 and 003 exist, 004 is used.
 - Numbering logic implemented as a reusable filesystem utility function
-  for future use by other features
+  for future use by other features.
 
 # Non-Functional Requirements
 
@@ -221,6 +226,9 @@ Output files use zero-padded incrementing numbers:
   rejected before any write occurs. For output paths that do not yet
   exist, canonicalize the parent directory and validate the normalized
   relative path rather than the full path.
+- Git safety: export is read-only and does not require a clean working
+  tree. Import requires a clean working tree before any write to keep
+  changes isolated and git-revertible per Constitution Section IV.
 - UX: import interaction must be clear at each step — waiting, parsing,
   preview, confirm. Failure messages must state exactly what went wrong
   and what the user should do next.
@@ -269,6 +277,8 @@ Output files use zero-padded incrementing numbers:
       — no recursive file discovery
 - [ ] AC-17: Import ignores all content appearing after the first
       SPECDRIVE:END delimiter
+- [ ] AC-18: Export does not require a clean working tree. Import
+      verifies a clean working tree before any write.
 
 # Implementation Notes
 
