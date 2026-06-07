@@ -137,11 +137,11 @@ Error cases:
    filesystem operation — alphanumeric, hyphens, and underscores only;
    no path separators, traversal sequences, null bytes, or control
    characters. Reject with clear message on failure.
-2. Validate FEATURE_ID exists and has spec and contract
+2. Validate FEATURE_ID exists and has spec and contract.
 3. Call `resolve_draft_files()` or `resolve_implement_files()` to get
-   file list — no additional file discovery permitted
+   file list — no additional file discovery permitted.
 4. Build export prompt — new prompt, files provided inline, no path
-   references, delimiter guardrail embedded
+   references, delimiter guardrail embedded.
 5. Assemble delimited bundle:
    - `--- SPECDRIVE:BEGIN ---`
    - `--- SPECDRIVE:NOTES ---` (empty, AI fills on response)
@@ -149,23 +149,25 @@ Error cases:
      inlined contents
    - `--- SPECDRIVE:PROMPT ---` block containing export prompt
    - `--- SPECDRIVE:END ---`
-6. Print bundle to stdout
+6. Print bundle to stdout.
 7. Print usage hint: "Copy the above and paste into your AI chat tool."
+
+Export must succeed even on a dirty working tree. Export never
+requires a clean tree and must not check for one.
 
 ## Detailed behavior — Import
 
 1. Validate FEATURE_ID as a safe single-directory component — same
    rules as export. Reject with clear message on failure.
-2. Verify clean working tree — import requires a clean working tree
-   before any write to keep changes isolated and git-revertible.
-   Export skips this check.
+2. Verify clean working tree — import enforces its own clean-tree
+   check in code before any write, independent of the shared
+   preflight. Export skips this check entirely and must not be
+   blocked by a dirty tree.
 3. Read stdin lines until the first `--- SPECDRIVE:END ---` is
    encountered. Input processing terminates immediately. Any content
    appearing after the first SPECDRIVE:END is ignored.
-4. Check response against configurable size limits before parsing:
-   - Total response size must not exceed max_response_size_bytes
-     (default: 5MB)
-   - Reject with clear message if exceeded; nothing written
+4. Check total response size against max_response_size_bytes before
+   parsing. Reject with clear message if exceeded; nothing written.
 5. Parse delimited response:
    - Extract NOTES block if present
    - Extract each FILE block with path and contents
@@ -180,8 +182,8 @@ Error cases:
    - All FILE paths checked for absolute path patterns before
      canonicalization — absolute paths rejected immediately
    - All FILE paths canonicalize to within
-     `docs/features/<FEATURE_ID>/` — path traversal sequences,
-     symlinks followed and containment re-verified after resolution
+     `docs/features/<FEATURE_ID>/` — symlinks are followed and
+     containment re-verified after resolution
    - For output paths that do not yet exist, canonicalize the parent
      directory and validate the normalized relative path rather than
      the full path
@@ -189,10 +191,11 @@ Error cases:
      and contains the required top-level contract structure. Full
      schema validation is deferred to F-019.
    - Implement import: no content validation
-8. If any validation fails — reject with specific error, nothing written
-9. Display NOTES to user if present
-10. Display file change preview with change counts
-11. Prompt `Apply? [y/N]:`
+8. If any validation fails — reject with specific error, nothing
+   written.
+9. Display NOTES to user if present.
+10. Display file change preview with change counts.
+11. Prompt `Apply? [y/N]:`.
 12. On confirmation:
     - Draft: replace `docs/features/<FEATURE_ID>/contract.yaml` with
       validated content. Save notes to
@@ -249,22 +252,23 @@ chat:
     max_response_size_bytes: 5242880  # 5MB
 ```
 
-Built-in defaults apply if the config file is absent or the values are
+Built-in defaults apply if the config file is absent or values are
 not specified. Invalid or unsafe config values (zero, negative, or
 non-integer) produce a warning and fall back to built-in defaults.
 
 # Non-Functional Requirements
 
-- Performance: bundle assembly and import parsing must complete in under
-  one second for typical feature sizes
+- Performance: bundle assembly and import parsing must complete in
+  under one second for typical feature sizes.
 - Portability: stdout/stdin only, no OS-specific APIs, no clipboard,
-  no display server dependency — must work on Linux, macOS, and Windows
+  no display server dependency — must work on Linux, macOS, and
+  Windows.
 - Security:
-  - FEATURE_ID is validated as a safe single-directory component before
-    any filesystem operation — alphanumeric, hyphens, and underscores
-    only; no path separators, traversal sequences, null bytes, or
-    control characters permitted. This prevents LFI via crafted
-    FEATURE_ID values.
+  - FEATURE_ID is validated as a safe single-directory component
+    before any filesystem operation — alphanumeric, hyphens, and
+    underscores only; no path separators, traversal sequences, null
+    bytes, or control characters permitted. This prevents LFI via
+    crafted FEATURE_ID values.
   - All imported FILE paths are checked for absolute path patterns
     before canonicalization — absolute paths are rejected immediately.
   - After canonicalization, all paths must resolve within
@@ -287,12 +291,15 @@ non-integer) produce a warning and fall back to built-in defaults.
     argument arrays — no shell interpolation of user-supplied or
     AI-supplied values. FEATURE_ID validation eliminates shell
     metacharacter injection at the entry point.
-- Git safety: export is read-only and does not require a clean working
-  tree. Import requires a clean working tree before any write to keep
-  changes isolated and git-revertible per Constitution Section IV.
-- UX: import interaction must be clear at each step — waiting, parsing,
-  preview, confirm. Failure messages must state exactly what went wrong
-  and what the user should do next.
+- Git safety: export is read-only and must succeed even on a dirty
+  working tree — export must not check for or require a clean tree.
+  Import enforces its own clean-tree check in code before any write,
+  independent of the shared preflight. The git_safety.require_clean_tree
+  field is set to false so export is never blocked; import handles its
+  own gate.
+- UX: import interaction must be clear at each step — waiting,
+  parsing, preview, confirm. Failure messages must state exactly what
+  went wrong and what the user should do next.
 
 # Acceptance Criteria
 
@@ -338,8 +345,9 @@ non-integer) produce a warning and fall back to built-in defaults.
       — no recursive file discovery
 - [ ] AC-17: Import ignores all content appearing after the first
       SPECDRIVE:END delimiter
-- [ ] AC-18: Export does not require a clean working tree. Import
-      verifies a clean working tree before any write.
+- [ ] AC-18: Export succeeds on a dirty working tree and does not
+      check for or require a clean tree. Import enforces its own
+      clean-tree check in code before any write.
 - [ ] AC-19: FEATURE_ID is validated as alphanumeric, hyphens, and
       underscores only before any filesystem operation — invalid
       FEATURE_ID is rejected with a clear message
@@ -383,12 +391,15 @@ non-integer) produce a warning and fall back to built-in defaults.
 - Security implementation notes:
   - FEATURE_ID validation must run before any path construction or
     filesystem call
-  - Absolute path detection must occur before canonicalization —
-    do not rely on canonicalization to catch absolute paths
+  - Absolute path detection must occur before canonicalization — do
+    not rely on canonicalization to catch absolute paths
   - Symlink resolution must re-verify containment after following
     links — `std::fs::canonicalize` handles this on most platforms
   - Delimiter matching must be implemented as line-start comparison
     not substring search
+  - Import clean-tree check must be implemented in code in the import
+    path — do not rely on the shared preflight for this gate. Export
+    must never invoke the clean-tree check.
   - All git calls must use `std::process::Command::new("git").arg()`
     chains — never format! into a shell string
   - Audit existing codebase for any `sh -c` or `bash -c` usage before
