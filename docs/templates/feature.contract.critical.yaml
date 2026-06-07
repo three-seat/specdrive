@@ -7,13 +7,13 @@ metadata:
   critical: true
 
 summary: |
-  TODO: 2-4 lines describing the feature and why it's critical.
+  TODO: 2-4 lines describing the feature and why it is critical.
 
 scope:
   product: "specdrive"
   service: "specdrive-cli"
   repo: "specdrive"
-  area: "TODO: cli|spec|contract|git|ai|docs"
+  area: "TODO: choose one of: cli | spec | contract | git | ai | docs"
 
 requirements:
   high_level: []
@@ -21,20 +21,23 @@ requirements:
 
 assumptions:
   - id: "A-001"
-    text: "Repo layout follows .specify/ and docs/ conventions."
+    text: "The command is run from the repository root and .git/ is present."
   - id: "A-002"
-    text: "Required tools are installed (git, specify)."
+    text: >
+      Repo layout follows the post-ADR-0002 / F-007 conventions: feature
+      artifacts under docs/features/<FEATURE_ID>/, templates under
+      docs/templates/. Spec Kit / .specify/ is not required.
 
 preconditions:
   - id: "P-001"
-    text: "Command is run from repo root."
+    text: "Command is run from the repository root inside a git repository."
 
 impact:
   security:
-    confidentiality: "low" # low | medium | high
-    integrity: "low"
-    availability: "low"
-    rationale: "Explain the impact if this feature is wrong/abused."
+    confidentiality: "low"   # low | medium | high
+    integrity: "low"         # low | medium | high
+    availability: "low"      # low | medium | high
+    rationale: "TODO: explain the impact if this feature is wrong or abused."
   privacy:
     pii_involved: false
     rationale: ""
@@ -42,9 +45,13 @@ impact:
 architecture:
   related_docs:
     - "docs/system-overview.md"
+    - "docs/constitution.md"
+    - "docs/adrs/ADR-0003-artifact-ownership-and-traceability.md"
   constraints:
     - "No secrets written to disk."
-    - "No network calls unless explicitly required."
+    - "No network calls unless explicitly required and approved."
+    - "All SpecDrive state remains repository-local and reconstructable."
+    - "AI produces artifacts only; this feature must not advance lifecycle state unless explicitly specified."
 
 cli:
   command: ""
@@ -55,7 +62,7 @@ cli:
     - code: 0
       meaning: "Success."
     - code: 1
-      meaning: "Usage / precondition failure."
+      meaning: "Usage or precondition failure."
     - code: 2
       meaning: "Underlying tool or IO failure."
 
@@ -64,30 +71,23 @@ behavior:
 
 logic:
   invariants: []
-  error_conditions:
-    - code: ""
-      description: ""
-      effect: ""
+  error_conditions: []
 
 filesystem:
   creates_paths: []
   reads_paths: []
-  copies_templates:
-    - from: ""
-      to: ""
+  copies_templates: []
   must_not_modify: []
 
 integrations:
   tools:
     - name: "git"
-      purpose: "Working tree checks / commands."
-    - name: "specify"
-      purpose: "Spec Kit scaffolding."
+      purpose: "Working tree checks and repository readiness via ensure_repo_ready()."
 
 git_safety:
   require_clean_tree: true
   allow_untracked: true
-  rationale: "Avoid AI or automation operating on a dirty tree."
+  rationale: "TODO: justify clean tree requirement for this command. Read-only commands may set this to false."
 
 verification:
   strategy: ["unit", "integration"]
@@ -99,9 +99,12 @@ verification:
 reviews:
   required: true
   checklist:
-    - "Spec and contract agree."
-    - "Threat/impact notes make sense."
-    - "Invariants are enforced in code and tests."
+    - "Spec and contract agree on behavior, commands, and invariants."
+    - "Threat and impact assessment is accurate."
+    - "Invariants are enforced in code and covered by tests."
+    - "No new crate dependencies unless explicitly approved."
+    - "Lifecycle state is not advanced unless explicitly specified."
+    - "Feature does not modify canonical artifacts outside its stated scope."
   status:
     reviewed_by: ""
     reviewed_at: ""
@@ -109,6 +112,8 @@ reviews:
 ai_instructions:
   - "Treat this contract as the source of truth."
   - "Prioritize correctness and safety over cleverness."
-  - "Do not weaken invariants."
-  - "Do not add dependencies unless explicitly allowed."
-  - "If anything is ambiguous, implement the safest conservative behavior."
+  - "Do not weaken invariants or lower safety properties."
+  - "Do not add dependencies unless explicitly allowed in this contract."
+  - "Do not advance lifecycle state unless explicitly specified in this contract."
+  - "Do not modify specs, constitution, ADRs, or templates."
+  - "If anything is ambiguous, implement the safest conservative behavior and reject rather than write."
