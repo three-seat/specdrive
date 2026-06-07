@@ -553,8 +553,8 @@ reviews:
     - "Lifecycle state is not advanced (deferred to F-010)."
     - "Feature does not modify canonical artifacts outside its stated scope."
   status:
-    reviewed_by: ""
-    reviewed_at: ""
+    reviewed_by: "three_seat"
+    reviewed_at: "06-07-2025"
 
 ai_instructions:
   - "Treat this contract as the source of truth."
