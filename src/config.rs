@@ -93,6 +93,128 @@ pub struct Config {
     /// Naming conventions configuration
     #[serde(default)]
     pub naming: Option<NamingSection>,
+    /// Chat export/import configuration (F-009)
+    #[serde(default)]
+    pub chat: Option<ChatSection>,
+}
+
+/// Chat workflow configuration section (F-009).
+#[derive(Debug, Deserialize)]
+pub struct ChatSection {
+    /// Import-side configuration.
+    #[serde(default)]
+    pub import: Option<ChatImportSection>,
+}
+
+/// Raw, unvalidated `chat.import` size-limit configuration (F-009).
+///
+/// Values are read as untyped YAML so that invalid or unsafe values (zero,
+/// negative, or non-integer) can be detected and replaced with built-in
+/// defaults plus a warning, per LLR-025, rather than causing a hard parse
+/// failure of the whole config file.
+#[derive(Debug, Deserialize)]
+pub struct ChatImportSection {
+    #[serde(default)]
+    pub max_file_blocks: Option<serde_yaml::Value>,
+    #[serde(default)]
+    pub max_file_size_bytes: Option<serde_yaml::Value>,
+    #[serde(default)]
+    pub max_response_size_bytes: Option<serde_yaml::Value>,
+}
+
+/// Resolved, validated `chat.import` size limits (F-009).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChatImportLimits {
+    pub max_file_blocks: usize,
+    pub max_file_size_bytes: u64,
+    pub max_response_size_bytes: u64,
+}
+
+impl ChatImportLimits {
+    pub const DEFAULT_MAX_FILE_BLOCKS: usize = 20;
+    pub const DEFAULT_MAX_FILE_SIZE_BYTES: u64 = 1_048_576; // 1 MB
+    pub const DEFAULT_MAX_RESPONSE_SIZE_BYTES: u64 = 5_242_880; // 5 MB
+
+    /// Built-in defaults applied when config is absent or values are invalid.
+    pub fn defaults() -> Self {
+        Self {
+            max_file_blocks: Self::DEFAULT_MAX_FILE_BLOCKS,
+            max_file_size_bytes: Self::DEFAULT_MAX_FILE_SIZE_BYTES,
+            max_response_size_bytes: Self::DEFAULT_MAX_RESPONSE_SIZE_BYTES,
+        }
+    }
+}
+
+/// Coerces a raw YAML config value into a positive integer, falling back to the
+/// supplied default (with a warning) if the value is absent, not an integer,
+/// zero, or negative. Per LLR-025 / E-012.
+fn coerce_positive_limit(field: &Option<serde_yaml::Value>, name: &str, default: u64) -> u64 {
+    match field {
+        None => default,
+        Some(value) => match value.as_u64() {
+            Some(n) if n > 0 => n,
+            _ => {
+                eprintln!(
+                    "warning: chat.import.{} is invalid (must be a positive integer); \
+                     using built-in default {}",
+                    name, default
+                );
+                default
+            }
+        },
+    }
+}
+
+/// Loads and validates the `chat.import` size limits (F-009).
+///
+/// Built-in defaults apply if the config file is absent, the `chat.import`
+/// namespace is unset, or any individual value is invalid or unsafe. Invalid
+/// values produce a warning and fall back to the default for that field only
+/// (LLR-024, LLR-025). A config file that cannot be parsed at all is treated as
+/// "use defaults" with a warning, since size limits must never hard-fail the
+/// import path.
+pub fn load_chat_import_limits() -> ChatImportLimits {
+    let defaults = ChatImportLimits::defaults();
+
+    let config = match Config::load() {
+        Ok(Some(c)) => c,
+        Ok(None) => return defaults,
+        Err(e) => {
+            eprintln!("warning: {}; using built-in chat import limits", e);
+            return defaults;
+        }
+    };
+
+    let Some(import) = config.chat.and_then(|c| c.import) else {
+        return defaults;
+    };
+
+    resolve_chat_import_limits(&import)
+}
+
+/// Resolves a raw `chat.import` section into validated limits, applying
+/// built-in defaults (with a warning) for any absent or invalid value. Split
+/// out from [`load_chat_import_limits`] so the validation logic is testable
+/// without touching the filesystem.
+fn resolve_chat_import_limits(import: &ChatImportSection) -> ChatImportLimits {
+    let defaults = ChatImportLimits::defaults();
+    ChatImportLimits {
+        max_file_blocks: coerce_positive_limit(
+            &import.max_file_blocks,
+            "max_file_blocks",
+            defaults.max_file_blocks as u64,
+        ) as usize,
+        max_file_size_bytes: coerce_positive_limit(
+            &import.max_file_size_bytes,
+            "max_file_size_bytes",
+            defaults.max_file_size_bytes,
+        ),
+        max_response_size_bytes: coerce_positive_limit(
+            &import.max_response_size_bytes,
+            "max_response_size_bytes",
+            defaults.max_response_size_bytes,
+        ),
+    }
 }
 
 /// Naming conventions section
@@ -381,6 +503,96 @@ naming:
             source: "bad yaml".to_string(),
         };
         assert_eq!(parse_err.exit_code(), 2);
+    }
+
+    // These tests exercise the pure limit-resolution logic without touching the
+    // filesystem or the process working directory, to avoid the cwd races that
+    // affect the config-loading tests.
+
+    fn parse_import(yaml: &str) -> ChatImportSection {
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        config.chat.unwrap().import.unwrap()
+    }
+
+    #[test]
+    fn test_chat_import_limits_valid_overrides() {
+        let import = parse_import(
+            r#"
+schema_version: 1
+chat:
+  import:
+    max_file_blocks: 5
+    max_file_size_bytes: 2048
+    max_response_size_bytes: 10000
+"#,
+        );
+        let limits = resolve_chat_import_limits(&import);
+        assert_eq!(limits.max_file_blocks, 5);
+        assert_eq!(limits.max_file_size_bytes, 2048);
+        assert_eq!(limits.max_response_size_bytes, 10000);
+    }
+
+    #[test]
+    fn test_chat_import_limits_invalid_values_fall_back() {
+        // zero, negative, and non-integer values must all fall back to defaults.
+        let import = parse_import(
+            r#"
+schema_version: 1
+chat:
+  import:
+    max_file_blocks: 0
+    max_file_size_bytes: -10
+    max_response_size_bytes: "lots"
+"#,
+        );
+        let limits = resolve_chat_import_limits(&import);
+        assert_eq!(limits, ChatImportLimits::defaults());
+    }
+
+    #[test]
+    fn test_chat_import_limits_partial_override() {
+        let import = parse_import(
+            r#"
+schema_version: 1
+chat:
+  import:
+    max_file_blocks: 7
+"#,
+        );
+        let limits = resolve_chat_import_limits(&import);
+        assert_eq!(limits.max_file_blocks, 7);
+        // Unspecified fields keep defaults.
+        assert_eq!(
+            limits.max_file_size_bytes,
+            ChatImportLimits::DEFAULT_MAX_FILE_SIZE_BYTES
+        );
+        assert_eq!(
+            limits.max_response_size_bytes,
+            ChatImportLimits::DEFAULT_MAX_RESPONSE_SIZE_BYTES
+        );
+    }
+
+    #[test]
+    fn test_coerce_positive_limit() {
+        use serde_yaml::Value;
+        assert_eq!(coerce_positive_limit(&None, "x", 99), 99);
+        assert_eq!(
+            coerce_positive_limit(&Some(Value::Number(42.into())), "x", 99),
+            42
+        );
+        // zero, negative, and string all fall back.
+        assert_eq!(
+            coerce_positive_limit(&Some(Value::Number(0.into())), "x", 99),
+            99
+        );
+        assert_eq!(
+            coerce_positive_limit(&Some(Value::Number((-5i64).into())), "x", 99),
+            99
+        );
+        assert_eq!(
+            coerce_positive_limit(&Some(Value::String("nope".into())), "x", 99),
+            99
+        );
     }
 
     #[test]

@@ -1,6 +1,7 @@
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 mod bootstrap;
+mod chat;
 mod cli;
 mod config;
 mod draft;
@@ -10,6 +11,7 @@ mod fsutil;
 mod git;
 mod implement;
 mod patch;
+mod resolve;
 mod utils;
 
 fn main() {
@@ -29,6 +31,8 @@ fn main() {
             config_err.exit_code()
         } else if let Some(patch_err) = err.downcast_ref::<patch::PatchError>() {
             patch_err.exit_code()
+        } else if let Some(chat_err) = err.downcast_ref::<chat::ChatError>() {
+            chat_err.exit_code()
         } else {
             1 // Default exit code for all other errors
         };

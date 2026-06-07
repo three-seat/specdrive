@@ -250,6 +250,48 @@ pub fn copy_template_with_replacements(
     Ok(())
 }
 
+/// Computes the next zero-padded numbered filename in `dir` matching the
+/// pattern `<prefix><NNN><suffix>` (for example `notes-` + `001` + `.md`).
+///
+/// Per F-009 LLR-011, the next number is the highest existing NNN matching the
+/// pattern in the directory, plus one. Gaps never cause overwrites — if `001`
+/// and `003` exist, `004` is returned. If the directory does not exist or holds
+/// no matching files, the sequence starts at `001`.
+///
+/// This is a reusable utility intended for any feature that writes numbered
+/// output artifacts. It never creates the directory and never fails: an
+/// unreadable directory simply yields the first number.
+pub fn next_numbered_filename(dir: &Path, prefix: &str, suffix: &str) -> String {
+    let mut highest: u32 = 0;
+
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else { continue };
+
+            // Match `<prefix><digits><suffix>` exactly, where the middle is a
+            // run of ASCII digits. Anything else is ignored.
+            let Some(rest) = name.strip_prefix(prefix) else {
+                continue;
+            };
+            let Some(digits) = rest.strip_suffix(suffix) else {
+                continue;
+            };
+            if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+                continue;
+            }
+            if let Ok(n) = digits.parse::<u32>()
+                && n > highest
+            {
+                highest = n;
+            }
+        }
+    }
+
+    let next = highest.saturating_add(1);
+    format!("{}{:03}{}", prefix, next, suffix)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -546,6 +588,48 @@ mod tests {
         let absent = OptionalDoc::Absent;
         assert!(!absent.is_present());
         assert!(absent.path().is_none());
+    }
+
+    #[test]
+    fn test_next_numbered_filename_empty_dir() {
+        let temp = TempDir::new().unwrap();
+        let name = next_numbered_filename(temp.path(), "notes-", ".md");
+        assert_eq!(name, "notes-001.md");
+    }
+
+    #[test]
+    fn test_next_numbered_filename_missing_dir() {
+        let temp = TempDir::new().unwrap();
+        let missing = temp.path().join("does-not-exist");
+        let name = next_numbered_filename(&missing, "implement-", ".raw.md");
+        assert_eq!(name, "implement-001.raw.md");
+    }
+
+    #[test]
+    fn test_next_numbered_filename_gaps_do_not_overwrite() {
+        let temp = TempDir::new().unwrap();
+        // 001 and 003 present, 002 is a gap. Next must be 004, not 002.
+        fs::write(temp.path().join("notes-001.md"), "a").unwrap();
+        fs::write(temp.path().join("notes-003.md"), "b").unwrap();
+        // Files that don't match the pattern must be ignored.
+        fs::write(temp.path().join("notes-xyz.md"), "c").unwrap();
+        fs::write(temp.path().join("implement-002.raw.md"), "d").unwrap();
+
+        let name = next_numbered_filename(temp.path(), "notes-", ".md");
+        assert_eq!(name, "notes-004.md");
+    }
+
+    #[test]
+    fn test_next_numbered_filename_distinct_patterns() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("implement-001.raw.md"), "a").unwrap();
+        fs::write(temp.path().join("implement-002.raw.md"), "b").unwrap();
+
+        let name = next_numbered_filename(temp.path(), "implement-", ".raw.md");
+        assert_eq!(name, "implement-003.raw.md");
+        // The notes pattern is independent and starts fresh.
+        let notes = next_numbered_filename(temp.path(), "notes-", ".md");
+        assert_eq!(notes, "notes-001.md");
     }
 
     #[test]
