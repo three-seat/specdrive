@@ -1,4 +1,13 @@
 # Changelog
+## v0.4.0 — Chat Export/Import Workflow
+
+- Added `specdrive chat export` and `specdrive chat import` subcommands bridging SpecDrive's artifact model with stateless AI chat tools
+- Export assembles a self-contained, delimited context bundle from resolved feature artifacts and prints to stdout — no clipboard, no API, works with any AI chat tool
+- Import reads a delimited AI response from stdin, validates it, previews changes, and writes artifacts only on explicit confirmation
+- Import defends against path traversal, LFI, symlink escape, delimiter injection, and oversized responses — all rejections occur before any write
+- Introduced configurable size limits under `chat.import` config namespace with safe built-in defaults
+- Extracted shared file resolver and output numbering utilities as foundation for future artifact lineage features
+- Updated critical contract template — review records now belong in `state.yaml` (F-010), not in `contract.yaml`
 ## v0.3.1 - 2026-05-28
 
 ### Fixed
