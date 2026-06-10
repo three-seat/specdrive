@@ -1,6 +1,7 @@
 use crate::Result;
 use crate::config;
 use crate::fsutil;
+use crate::resolve::{self, FileRole};
 use crate::utils;
 use std::fmt;
 use std::fs;
@@ -193,30 +194,21 @@ fn implement_feature_inner(feature_id: &str) -> std::result::Result<(), Implemen
     };
 
     // 9. Build and print the prompt
-    let prompt = build_prompt(
-        feature_id,
-        &feature_paths,
-        &constitution,
-        &system_overview,
-        &adr_files,
-        header.as_deref(),
-        footer.as_deref(),
-    );
+    //
+    // The set of context files is sourced from the shared resolver (F-009,
+    // AC-13) so that the existing read-validation above, this prompt, and
+    // `chat export` all agree on exactly which files make up the implement
+    // context. The optional docs discovered above are still used for
+    // read-validation; the listing below is driven by the resolver.
+    let _ = (&constitution, &system_overview, &adr_files);
+    let prompt = build_prompt(feature_id, header.as_deref(), footer.as_deref());
 
     println!("{}", prompt);
 
     Ok(())
 }
 
-fn build_prompt(
-    feature_id: &str,
-    feature_paths: &fsutil::FeaturePaths,
-    constitution: &fsutil::OptionalDoc,
-    system_overview: &fsutil::OptionalDoc,
-    adr_files: &[PathBuf],
-    header: Option<&str>,
-    footer: Option<&str>,
-) -> String {
+fn build_prompt(feature_id: &str, header: Option<&str>, footer: Option<&str>) -> String {
     let mut prompt = String::new();
 
     // Optional header
@@ -237,23 +229,27 @@ fn build_prompt(
         "The spec and contract are the source of truth. Do NOT modify them unless explicitly instructed.\n\n",
     );
 
-    // Files to read
+    // Files to read — sourced from the shared implement resolver.
     prompt.push_str("Files you MUST read before coding:\n");
-    prompt.push_str(&format!("- {}\n", feature_paths.spec.display()));
-    prompt.push_str(&format!("- {}\n", feature_paths.contract.display()));
-
-    if let Some(path) = constitution.path() {
-        prompt.push_str(&format!("- {}\n", path.display()));
-    }
-
-    if let Some(path) = system_overview.path() {
-        prompt.push_str(&format!("- {}\n", path.display()));
-    }
-
-    if !adr_files.is_empty() {
-        prompt.push_str("- Architecture Decision Records (ADRs):\n");
-        for adr in adr_files {
-            prompt.push_str(&format!("  - {}\n", adr.display()));
+    let mut adr_header_written = false;
+    for file in resolve::resolve_implement_files(feature_id) {
+        match file.role {
+            FileRole::Spec | FileRole::Contract => {
+                prompt.push_str(&format!("- {}\n", file.path.display()));
+            }
+            FileRole::Constitution | FileRole::SystemOverview => {
+                if file.path.exists() {
+                    prompt.push_str(&format!("- {}\n", file.path.display()));
+                }
+            }
+            FileRole::Adr => {
+                if !adr_header_written {
+                    prompt.push_str("- Architecture Decision Records (ADRs):\n");
+                    adr_header_written = true;
+                }
+                prompt.push_str(&format!("  - {}\n", file.path.display()));
+            }
+            FileRole::MinimalTemplate | FileRole::CriticalTemplate => {}
         }
     }
 

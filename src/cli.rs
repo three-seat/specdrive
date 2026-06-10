@@ -1,5 +1,6 @@
 use crate::Result;
 use crate::bootstrap;
+use crate::chat;
 use crate::draft;
 use crate::feature;
 use crate::implement;
@@ -58,6 +59,19 @@ pub fn run() -> Result<()> {
                 _ => Err(format!("unknown patch action: {}", action).into()),
             }
         }
+        "chat" => {
+            // Per F-009 contract: chat export|import <draft|implement> <FEATURE_ID>
+            let Some(action) = args.next() else {
+                return Err("chat requires an action (export|import)".into());
+            };
+            let Some(workflow) = args.next() else {
+                return Err(format!("chat {action} requires <draft|implement>").into());
+            };
+            let Some(feature_id) = args.next() else {
+                return Err(format!("chat {action} {workflow} requires <FEATURE_ID>").into());
+            };
+            chat::run(&action, &workflow, &feature_id)
+        }
         "help" | "-h" | "--help" => {
             print_usage();
             Ok(())
@@ -78,5 +92,7 @@ fn print_usage() {
     eprintln!("  specdrive implement <FEATURE_ID>");
     eprintln!("  specdrive draft <FEATURE_ID>");
     eprintln!("  specdrive patch emit <FEATURE_ID>");
+    eprintln!("  specdrive chat export <draft|implement> <FEATURE_ID>");
+    eprintln!("  specdrive chat import <draft|implement> <FEATURE_ID>");
     eprintln!("  specdrive help");
 }

@@ -1,6 +1,7 @@
 use crate::Result;
 use crate::config;
 use crate::fsutil;
+use crate::resolve::{self, FileRole};
 use crate::utils;
 use std::fmt;
 use std::fs;
@@ -204,39 +205,50 @@ fn build_draft_prompt(ctx: &DraftPromptContext<'_>) -> String {
     );
     prompt.push_str("Use the appropriate contract template (minimal vs critical).\n\n");
 
+    // The set of context files is sourced from the shared draft resolver
+    // (F-009, AC-13) so the existing read-validation, this prompt, and
+    // `chat export` all agree on which files make up the draft context. The
+    // ctx fields below are retained for read-validation in the caller.
+    let _ = (
+        &ctx.template_paths,
+        &ctx.system_overview,
+        &ctx.constitution,
+        &ctx.adr_files,
+    );
+
     prompt.push_str("Files you MUST read before drafting the contract:\n");
-    prompt.push_str(&format!(
-        "- {} (feature spec)\n",
-        ctx.feature_paths.spec.display()
-    ));
-    prompt.push_str(&format!(
-        "- {} (current or skeleton)\n",
-        ctx.feature_paths.contract.display()
-    ));
-
-    if let Some(path) = ctx.constitution.path() {
-        prompt.push_str(&format!("- {}\n", path.display()));
-    }
-
-    if !ctx.adr_files.is_empty() {
-        prompt.push_str("- Architecture Decision Records (ADRs):\n");
-        for adr in ctx.adr_files {
-            prompt.push_str(&format!("  - {}\n", adr.display()));
+    let mut adr_header_written = false;
+    for file in resolve::resolve_draft_files(ctx.feature_id) {
+        match file.role {
+            FileRole::Spec => {
+                prompt.push_str(&format!("- {} (feature spec)\n", file.path.display()));
+            }
+            FileRole::Contract => {
+                prompt.push_str(&format!(
+                    "- {} (current or skeleton)\n",
+                    file.path.display()
+                ));
+            }
+            FileRole::Constitution | FileRole::SystemOverview => {
+                if file.path.exists() {
+                    prompt.push_str(&format!("- {}\n", file.path.display()));
+                }
+            }
+            FileRole::Adr => {
+                if !adr_header_written {
+                    prompt.push_str("- Architecture Decision Records (ADRs):\n");
+                    adr_header_written = true;
+                }
+                prompt.push_str(&format!("  - {}\n", file.path.display()));
+            }
+            FileRole::MinimalTemplate => {
+                prompt.push_str(&format!("- {} (minimal template)\n", file.path.display()));
+            }
+            FileRole::CriticalTemplate => {
+                prompt.push_str(&format!("- {} (critical template)\n", file.path.display()));
+            }
         }
     }
-
-    if let Some(path) = ctx.system_overview.path() {
-        prompt.push_str(&format!("- {}\n", path.display()));
-    }
-
-    prompt.push_str(&format!(
-        "- {} (minimal template)\n",
-        ctx.template_paths.minimal.display()
-    ));
-    prompt.push_str(&format!(
-        "- {} (critical template)\n",
-        ctx.template_paths.critical.display()
-    ));
 
     prompt.push('\n');
 

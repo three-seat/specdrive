@@ -1,0 +1,2563 @@
+diff --git a/src/chat/export.rs b/src/chat/export.rs
+new file mode 100644
+index 0000000..bb7183c
+--- /dev/null
++++ b/src/chat/export.rs
+@@ -0,0 +1,162 @@
++//! `specdrive chat export <draft|implement> <FEATURE_ID>` (F-009).
++//!
++//! Assembles a self-contained, delimited context bundle from the files resolved
++//! for the workflow and prints it to stdout. Export is strictly read-only: it
++//! performs no clean-tree check and must succeed even on a dirty working tree
++//! (LLR-022, AC-18).
++
++use std::fs;
++
++use super::{BEGIN, ChatError, END, FILE_PREFIX, FILE_SUFFIX, NOTES, PROMPT, Workflow};
++use crate::fsutil;
++use crate::resolve;
++
++/// Runs the export workflow.
++pub fn run(workflow: Workflow, feature_id: &str) -> std::result::Result<(), ChatError> {
++    // The feature must exist and have both spec and contract (E-002).
++    let feature_paths = fsutil::FeaturePaths::new(feature_id);
++    feature_paths
++        .validate()
++        .map_err(|e| ChatError::usage(format!("{}. Feature {} not found.", e, feature_id)))?;
++
++    // Export context is determined solely by the resolver (LLR-001, AC-16).
++    let files = match workflow {
++        Workflow::Draft => resolve::resolve_draft_files(feature_id),
++        Workflow::Implement => resolve::resolve_implement_files(feature_id),
++    };
++
++    let mut bundle = String::new();
++
++    bundle.push_str(BEGIN);
++    bundle.push('\n');
++
++    // Empty NOTES block — the AI fills this in on response.
++    bundle.push_str(NOTES);
++    bundle.push('\n');
++    bundle.push('\n');
++
++    // One FILE block per resolved file, with inlined contents.
++    for file in &files {
++        match fs::read_to_string(&file.path) {
++            Ok(contents) => {
++                bundle.push_str(FILE_PREFIX);
++                bundle.push_str(&file.path.display().to_string());
++                bundle.push_str(FILE_SUFFIX);
++                bundle.push('\n');
++                bundle.push_str(&contents);
++                // Guarantee the next delimiter starts on its own line.
++                if !contents.ends_with('\n') {
++                    bundle.push('\n');
++                }
++            }
++            Err(e) => {
++                if file.required {
++                    // Spec or contract unreadable — fail fast (E-002).
++                    return Err(ChatError::io(format!(
++                        "failed to read required file {}: {}",
++                        file.path.display(),
++                        e
++                    )));
++                }
++                // Optional context missing — warn and continue (E-003, LLR-004).
++                eprintln!(
++                    "warning: skipping missing context file {}",
++                    file.path.display()
++                );
++            }
++        }
++    }
++
++    // PROMPT block with the inline-files export prompt.
++    bundle.push_str(PROMPT);
++    bundle.push('\n');
++    bundle.push_str(&build_export_prompt(workflow, feature_id));
++    bundle.push('\n');
++
++    bundle.push_str(END);
++    bundle.push('\n');
++
++    print!("{}", bundle);
++
++    // Usage hint goes to stderr so the bundle on stdout stays clean and
++    // copy-pasteable.
++    eprintln!();
++    eprintln!("Copy the above and paste into your AI chat tool.");
++
++    Ok(())
++}
++
++/// Builds the export prompt embedded in the PROMPT block (LLR-003).
++///
++/// The prompt provides files inline (no path references the AI must read) and
++/// embeds the delimiter guardrail instructing the AI to respond in SpecDrive
++/// delimited format.
++fn build_export_prompt(workflow: Workflow, feature_id: &str) -> String {
++    let mut p = String::new();
++
++    match workflow {
++        Workflow::Draft => {
++            p.push_str(&format!(
++                "You are drafting/refining the contract for feature {}.\n\n",
++                feature_id
++            ));
++            p.push_str(
++                "All required context (the feature spec, current/skeleton contract, \
++                 constitution, ADRs, system overview, and contract templates) is provided \
++                 inline above in SPECDRIVE:FILE blocks. Do not ask for file paths — every \
++                 file you need is already inlined.\n\n",
++            );
++            p.push_str("Produce the complete, updated contract for this feature.\n\n");
++        }
++        Workflow::Implement => {
++            p.push_str(&format!("You are implementing feature {}.\n\n", feature_id));
++            p.push_str(
++                "All required context (the feature spec, contract, constitution, ADRs, and \
++                 system overview) is provided inline above in SPECDRIVE:FILE blocks. Do not ask \
++                 for file paths — every file you need is already inlined.\n\n",
++            );
++            p.push_str(
++                "Treat the spec and contract as the source of truth. Do not weaken invariants, \
++                 lower safety properties, or add dependencies the contract does not allow.\n\n",
++            );
++        }
++    }
++
++    p.push_str("Respond ONLY in SpecDrive delimited format:\n");
++    p.push_str(&format!("  {}\n", BEGIN));
++    p.push_str(&format!(
++        "  {} (put any notes, caveats, or open questions here)\n",
++        NOTES
++    ));
++    p.push_str(&format!(
++        "  {}<repo-relative path under docs/features/{}/>{}\n",
++        FILE_PREFIX, feature_id, FILE_SUFFIX
++    ));
++    p.push_str("  ...file contents inline...\n");
++    p.push_str("  (repeat a FILE block for each file you are returning)\n");
++    p.push_str(&format!("  {}\n\n", END));
++
++    match workflow {
++        Workflow::Draft => {
++            p.push_str(&format!(
++                "Return the full updated contract as a single FILE block whose path is \
++                 docs/features/{}/contract.yaml. It must be valid YAML.\n",
++                feature_id
++            ));
++        }
++        Workflow::Implement => {
++            p.push_str(
++                "Use FILE blocks for the files you change. Paths must be repository-relative \
++                 and remain within the feature directory.\n",
++            );
++        }
++    }
++
++    p.push_str(&format!(
++        "Every path must be relative to the repository root and resolve within \
++         docs/features/{}/. End your response with the {} line.\n",
++        feature_id, END
++    ));
++
++    p
++}
+diff --git a/src/chat/import.rs b/src/chat/import.rs
+new file mode 100644
+index 0000000..b8153d8
+--- /dev/null
++++ b/src/chat/import.rs
+@@ -0,0 +1,534 @@
++//! `specdrive chat import <draft|implement> <FEATURE_ID>` (F-009).
++//!
++//! Reads a delimited AI response from stdin, validates it completely (a dry
++//! pass with no filesystem modification), previews the changes, and writes
++//! artifacts only on explicit confirmation. Import is the security-critical
++//! half of F-009: it accepts AI-supplied paths and contents and writes them to
++//! disk, so path traversal, absolute paths, symlink escape, delimiter
++//! injection, and oversized responses are all rejected before anything is
++//! written (HLR-003).
++
++use std::collections::HashMap;
++use std::fs;
++use std::io::BufRead;
++use std::path::{Path, PathBuf};
++
++use super::{ChatError, END, Workflow, parse_response, validate_file_path};
++use crate::config::{self, ChatImportLimits};
++use crate::fsutil;
++use crate::git;
++
++/// Runs the import workflow.
++pub fn run(workflow: Workflow, feature_id: &str) -> std::result::Result<(), ChatError> {
++    // The feature must exist and have both spec and contract (E-002).
++    let feature_paths = fsutil::FeaturePaths::new(feature_id);
++    feature_paths
++        .validate()
++        .map_err(|e| ChatError::usage(format!("{}. Feature {} not found.", e, feature_id)))?;
++
++    // Import enforces its OWN clean-tree gate in code, before any write and
++    // independent of the shared preflight (LLR-023, P-004, E-004). Untracked
++    // files are allowed (git_safety.allow_untracked: true).
++    ensure_clean_tree()?;
++
++    // Size limits, with safe built-in defaults (LLR-024, LLR-025).
++    let limits = config::load_chat_import_limits();
++
++    let stdin = std::io::stdin();
++    let mut reader = stdin.lock();
++
++    println!("Paste AI response. Waiting for {}", END);
++    println!();
++
++    // Read until the first END, enforcing the total response size limit
++    // (E-005 missing END; E-009 oversized).
++    let raw = read_until_end(&mut reader, limits.max_response_size_bytes)?;
++
++    println!("Parsing response...");
++    println!();
++
++    // --- Dry validation pass: nothing is written until this all succeeds and
++    // the user confirms (LLR-006, AC-14). ---
++    let parsed = parse_response(&raw);
++    validate_blocks(&parsed, &limits)?;
++
++    let cwd = std::env::current_dir()
++        .map_err(|e| ChatError::io(format!("failed to determine working directory: {}", e)))?;
++
++    // Validate every FILE path for containment (E-007, E-008) regardless of
++    // workflow.
++    let mut validated: Vec<PathBuf> = Vec::with_capacity(parsed.files.len());
++    for file in &parsed.files {
++        let path = validate_file_path(&feature_paths.dir, &file.path)?;
++        validated.push(path);
++    }
++
++    let _ = &validated; // path containment validated above for every block.
++
++    // Workflow-specific dry validation.
++    let plan = match workflow {
++        Workflow::Draft => plan_draft(&feature_paths, &parsed, &cwd)?,
++        Workflow::Implement => plan_implement(&feature_paths),
++    };
++
++    // --- Preview ---
++    if let Some(notes) = &parsed.notes {
++        println!("Notes from AI:");
++        for line in notes.lines() {
++            println!("  {}", line);
++        }
++        println!();
++    }
++
++    println!("Files to be written:");
++    for item in &plan {
++        println!("  {:<48} ({})", item.display_path(), item.change_summary);
++    }
++    println!();
++
++    // --- Confirmation ---
++    print!("Apply? [y/N]: ");
++    use std::io::Write;
++    let _ = std::io::stdout().flush();
++    if !confirm(&mut reader) {
++        println!();
++        println!("Declined. Nothing written.");
++        return Ok(()); // E-013: clean exit, nothing written.
++    }
++    println!();
++
++    // --- Writes (only reached after full validation + confirmation) ---
++    match workflow {
++        Workflow::Draft => apply_draft(&feature_paths, &parsed, &plan)?,
++        Workflow::Implement => apply_implement(&feature_paths, &raw, &plan)?,
++    }
++
++    println!("Done.");
++    Ok(())
++}
++
++/// In-code clean-tree gate for import (LLR-023, E-004).
++fn ensure_clean_tree() -> std::result::Result<(), ChatError> {
++    if !Path::new(".git").exists() {
++        return Err(ChatError::usage(
++            "Not a git repository. Please run this command from the root of a git repo.",
++        ));
++    }
++    // allow_untracked = true per git_safety.allow_untracked.
++    git::ensure_git_clean(true).map_err(|_| {
++        ChatError::usage(
++            "git working tree is not clean: commit or stash your changes before importing",
++        )
++    })
++}
++
++/// Reads stdin lines until the first line that is exactly the END delimiter,
++/// returning the raw text read (including the END line). Enforces the total
++/// response size limit incrementally so an unbounded stream cannot exhaust
++/// memory.
++fn read_until_end<R: BufRead>(
++    reader: &mut R,
++    max_response_size_bytes: u64,
++) -> std::result::Result<String, ChatError> {
++    let mut raw = String::new();
++    loop {
++        let mut line = String::new();
++        let n = reader
++            .read_line(&mut line)
++            .map_err(|e| ChatError::io(format!("failed to read stdin: {}", e)))?;
++
++        if n == 0 {
++            // EOF before END — incomplete paste (E-005).
++            return Err(ChatError::usage(format!(
++                "incomplete paste: never saw the '{}' delimiter. \
++                 Re-paste the full AI response including the final END line.",
++                END
++            )));
++        }
++
++        raw.push_str(&line);
++
++        if raw.len() as u64 > max_response_size_bytes {
++            // Reject before parsing (E-009).
++            return Err(ChatError::usage(format!(
++                "response exceeds the maximum allowed size of {} bytes",
++                max_response_size_bytes
++            )));
++        }
++
++        let logical = line.trim_end_matches(['\n', '\r']);
++        if logical == END {
++            break;
++        }
++    }
++    Ok(raw)
++}
++
++/// Reads a single confirmation line. Anything other than `y`/`yes`
++/// (case-insensitive) is treated as a decline.
++fn confirm<R: BufRead>(reader: &mut R) -> bool {
++    let mut line = String::new();
++    match reader.read_line(&mut line) {
++        Ok(0) | Err(_) => false,
++        Ok(_) => {
++            let ans = line.trim().to_ascii_lowercase();
++            ans == "y" || ans == "yes"
++        }
++    }
++}
++
++/// Validates block counts and sizes (E-006, E-010).
++fn validate_blocks(
++    parsed: &super::ParsedResponse,
++    limits: &ChatImportLimits,
++) -> std::result::Result<(), ChatError> {
++    if parsed.files.is_empty() {
++        return Err(ChatError::usage(
++            "malformed response: no SPECDRIVE:FILE blocks found",
++        ));
++    }
++    if parsed.files.len() > limits.max_file_blocks {
++        return Err(ChatError::usage(format!(
++            "response has {} FILE blocks, exceeding the maximum of {}",
++            parsed.files.len(),
++            limits.max_file_blocks
++        )));
++    }
++    for file in &parsed.files {
++        if file.contents.len() as u64 > limits.max_file_size_bytes {
++            return Err(ChatError::usage(format!(
++                "FILE block '{}' is {} bytes, exceeding the maximum of {} bytes",
++                file.path,
++                file.contents.len(),
++                limits.max_file_size_bytes
++            )));
++        }
++    }
++    Ok(())
++}
++
++/// A planned write for the preview and apply stages.
++struct PlannedWrite {
++    path: PathBuf,
++    change_summary: String,
++    /// Content to write, when known at planning time (draft contract). For
++    /// numbered artifacts the path is resolved at apply time.
++    content: Option<String>,
++    kind: WriteKind,
++}
++
++enum WriteKind {
++    Contract,
++    Notes,
++    ImplementRaw,
++}
++
++impl PlannedWrite {
++    fn display_path(&self) -> String {
++        self.path.display().to_string()
++    }
++}
++
++/// Builds and validates the draft write plan (LLR-009, LLR-019; E-011).
++fn plan_draft(
++    feature_paths: &fsutil::FeaturePaths,
++    parsed: &super::ParsedResponse,
++    cwd: &Path,
++) -> std::result::Result<Vec<PlannedWrite>, ChatError> {
++    // Locate the FILE block that targets this feature's contract.yaml. The
++    // contract exists, so canonicalization gives a reliable identity.
++    let contract_canon = feature_paths.contract.canonicalize().map_err(|e| {
++        ChatError::io(format!(
++            "failed to canonicalize contract {}: {}",
++            feature_paths.contract.display(),
++            e
++        ))
++    })?;
++
++    let mut contract_idx: Option<usize> = None;
++    for (idx, file) in parsed.files.iter().enumerate() {
++        let on_disk = cwd.join(&file.path);
++        if let Ok(canon) = on_disk.canonicalize()
++            && canon == contract_canon
++        {
++            contract_idx = Some(idx);
++            break;
++        }
++    }
++
++    let Some(idx) = contract_idx else {
++        return Err(ChatError::usage(format!(
++            "draft response did not include a FILE block for {}",
++            feature_paths.contract.display()
++        )));
++    };
++
++    let new_contents = parsed.files[idx].contents.clone();
++
++    // Validate parseable YAML with the required top-level contract structure
++    // (E-011, LLR-019). Full schema validation is deferred to F-019.
++    validate_contract_structure(&new_contents)?;
++
++    // Change count for the preview.
++    let old_contents = fs::read_to_string(&feature_paths.contract).unwrap_or_default();
++    let changes = count_line_changes(&old_contents, &new_contents);
++
++    let mut plan = vec![PlannedWrite {
++        path: feature_paths.contract.clone(),
++        change_summary: format!("{} changes", changes),
++        content: Some(new_contents),
++        kind: WriteKind::Contract,
++    }];
++
++    // Notes artifact, only if a NOTES block is present (LLR-009, LLR-012).
++    if parsed.notes.is_some() {
++        let outputs = feature_paths.dir.join("outputs");
++        let name = fsutil::next_numbered_filename(&outputs, "notes-", ".md");
++        plan.push(PlannedWrite {
++            path: outputs.join(name),
++            change_summary: "1 file".to_string(),
++            content: None, // notes content written from parsed.notes at apply time
++            kind: WriteKind::Notes,
++        });
++    }
++
++    Ok(plan)
++}
++
++/// Builds the implement write plan (LLR-010). The raw response is saved to a
++/// single numbered artifact; no source or patch files are touched.
++fn plan_implement(feature_paths: &fsutil::FeaturePaths) -> Vec<PlannedWrite> {
++    let outputs = feature_paths.dir.join("outputs");
++    let name = fsutil::next_numbered_filename(&outputs, "implement-", ".raw.md");
++    vec![PlannedWrite {
++        path: outputs.join(name),
++        change_summary: "1 file".to_string(),
++        content: None,
++        kind: WriteKind::ImplementRaw,
++    }]
++}
++
++/// Applies the draft plan: replace contract.yaml, then write notes if present.
++fn apply_draft(
++    feature_paths: &fsutil::FeaturePaths,
++    parsed: &super::ParsedResponse,
++    plan: &[PlannedWrite],
++) -> std::result::Result<(), ChatError> {
++    for item in plan {
++        match item.kind {
++            WriteKind::Contract => {
++                let content = item.content.as_deref().unwrap_or_default();
++                fs::write(&item.path, content).map_err(|e| {
++                    ChatError::io(format!(
++                        "failed to write contract {}: {}",
++                        item.path.display(),
++                        e
++                    ))
++                })?;
++                println!("Wrote {}", item.path.display());
++            }
++            WriteKind::Notes => {
++                ensure_parent_dir(&item.path)?;
++                let notes = parsed.notes.as_deref().unwrap_or_default();
++                fs::write(&item.path, notes).map_err(|e| {
++                    ChatError::io(format!(
++                        "failed to write notes {}: {}",
++                        item.path.display(),
++                        e
++                    ))
++                })?;
++                println!("Wrote {}", item.path.display());
++            }
++            WriteKind::ImplementRaw => {}
++        }
++    }
++    let _ = feature_paths;
++    Ok(())
++}
++
++/// Applies the implement plan: save the raw response to outputs/ only. Never
++/// modifies source code or patch artifacts (LLR-010, AC-15).
++fn apply_implement(
++    _feature_paths: &fsutil::FeaturePaths,
++    raw: &str,
++    plan: &[PlannedWrite],
++) -> std::result::Result<(), ChatError> {
++    for item in plan {
++        if let WriteKind::ImplementRaw = item.kind {
++            ensure_parent_dir(&item.path)?;
++            fs::write(&item.path, raw).map_err(|e| {
++                ChatError::io(format!(
++                    "failed to write output {}: {}",
++                    item.path.display(),
++                    e
++                ))
++            })?;
++            println!("Wrote {}", item.path.display());
++        }
++    }
++    Ok(())
++}
++
++fn ensure_parent_dir(path: &Path) -> std::result::Result<(), ChatError> {
++    if let Some(parent) = path.parent() {
++        fs::create_dir_all(parent).map_err(|e| {
++            ChatError::io(format!(
++                "failed to create directory {}: {}",
++                parent.display(),
++                e
++            ))
++        })?;
++    }
++    Ok(())
++}
++
++/// Validates that draft content is parseable YAML with the required top-level
++/// contract structure (LLR-019, E-011). Full schema validation is F-019.
++fn validate_contract_structure(content: &str) -> std::result::Result<(), ChatError> {
++    let value: serde_yaml::Value = serde_yaml::from_str(content)
++        .map_err(|e| ChatError::usage(format!("draft contract is not valid YAML: {}", e)))?;
++
++    let mapping = value.as_mapping().ok_or_else(|| {
++        ChatError::usage("draft contract must be a YAML mapping at the top level")
++    })?;
++
++    for required in ["metadata", "requirements"] {
++        if !mapping.contains_key(serde_yaml::Value::String(required.to_string())) {
++            return Err(ChatError::usage(format!(
++                "draft contract is missing the required top-level '{}' section",
++                required
++            )));
++        }
++    }
++
++    Ok(())
++}
++
++/// Counts changed lines between two texts as a line-multiset symmetric
++/// difference. Used only for the human-facing change-count preview (Q1: V1
++/// shows change counts only).
++fn count_line_changes(old: &str, new: &str) -> usize {
++    let mut counts: HashMap<&str, i64> = HashMap::new();
++    for line in old.lines() {
++        *counts.entry(line).or_insert(0) += 1;
++    }
++    for line in new.lines() {
++        *counts.entry(line).or_insert(0) -= 1;
++    }
++    counts.values().map(|v| v.unsigned_abs() as usize).sum()
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use std::io::Cursor;
++
++    fn limits() -> ChatImportLimits {
++        ChatImportLimits::defaults()
++    }
++
++    #[test]
++    fn test_read_until_end_ok() {
++        let input = format!("line1\nline2\n{}\nignored after\n", END);
++        let mut cur = Cursor::new(input);
++        let raw = read_until_end(&mut cur, 1_000_000).unwrap();
++        assert!(raw.contains("line1"));
++        assert!(raw.trim_end().ends_with(END));
++        assert!(!raw.contains("ignored after"));
++    }
++
++    #[test]
++    fn test_read_until_end_missing_end() {
++        let input = "line1\nline2\n".to_string();
++        let mut cur = Cursor::new(input);
++        let err = read_until_end(&mut cur, 1_000_000).unwrap_err();
++        assert_eq!(err.exit_code(), 1);
++        assert!(err.to_string().contains("incomplete paste"));
++    }
++
++    #[test]
++    fn test_read_until_end_oversized() {
++        let big = "x".repeat(100);
++        let input = format!("{}\n{}\n", big, END);
++        let mut cur = Cursor::new(input);
++        let err = read_until_end(&mut cur, 10).unwrap_err();
++        assert_eq!(err.exit_code(), 1);
++        assert!(err.to_string().contains("maximum"));
++    }
++
++    #[test]
++    fn test_confirm_variants() {
++        for yes in ["y\n", "Y\n", "yes\n", "YES\n", " y \n"] {
++            let mut cur = Cursor::new(yes.to_string());
++            assert!(confirm(&mut cur), "expected yes for {:?}", yes);
++        }
++        for no in ["n\n", "no\n", "\n", "anything\n", ""] {
++            let mut cur = Cursor::new(no.to_string());
++            assert!(!confirm(&mut cur), "expected no for {:?}", no);
++        }
++    }
++
++    #[test]
++    fn test_validate_blocks_no_files() {
++        let parsed = super::super::ParsedResponse {
++            notes: None,
++            files: vec![],
++        };
++        let err = validate_blocks(&parsed, &limits()).unwrap_err();
++        assert!(err.to_string().contains("no SPECDRIVE:FILE blocks"));
++    }
++
++    #[test]
++    fn test_validate_blocks_too_many() {
++        let files = (0..30)
++            .map(|i| super::super::ParsedFile {
++                path: format!("docs/features/F-1/f{}.md", i),
++                contents: "x".to_string(),
++            })
++            .collect();
++        let parsed = super::super::ParsedResponse { notes: None, files };
++        let err = validate_blocks(&parsed, &limits()).unwrap_err();
++        assert!(err.to_string().contains("exceeding the maximum"));
++    }
++
++    #[test]
++    fn test_validate_blocks_file_too_big() {
++        let mut lim = limits();
++        lim.max_file_size_bytes = 5;
++        let parsed = super::super::ParsedResponse {
++            notes: None,
++            files: vec![super::super::ParsedFile {
++                path: "docs/features/F-1/f.md".to_string(),
++                contents: "way too long".to_string(),
++            }],
++        };
++        let err = validate_blocks(&parsed, &lim).unwrap_err();
++        assert!(err.to_string().contains("exceeding the maximum"));
++    }
++
++    #[test]
++    fn test_validate_contract_structure_ok() {
++        let yaml = "metadata:\n  id: F-1\nrequirements:\n  high_level: []\n";
++        assert!(validate_contract_structure(yaml).is_ok());
++    }
++
++    #[test]
++    fn test_validate_contract_structure_bad_yaml() {
++        let yaml = "metadata: : :\n  bad";
++        assert!(validate_contract_structure(yaml).is_err());
++    }
++
++    #[test]
++    fn test_validate_contract_structure_missing_section() {
++        let yaml = "metadata:\n  id: F-1\n";
++        let err = validate_contract_structure(yaml).unwrap_err();
++        assert!(err.to_string().contains("requirements"));
++    }
++
++    #[test]
++    fn test_count_line_changes() {
++        assert_eq!(count_line_changes("a\nb\nc\n", "a\nb\nc\n"), 0);
++        // one line removed, one added => 2 changes.
++        assert_eq!(count_line_changes("a\nb\n", "a\nc\n"), 2);
++    }
++}
+diff --git a/src/chat/mod.rs b/src/chat/mod.rs
+new file mode 100644
+index 0000000..47b54d9
+--- /dev/null
++++ b/src/chat/mod.rs
+@@ -0,0 +1,518 @@
++//! `specdrive chat` — bridge between SpecDrive artifacts and stateless AI chat
++//! tools (F-009).
++//!
++//! `chat export` assembles a self-contained, delimited context bundle from a
++//! feature's resolved files and prints it to stdout. `chat import` reads a
++//! delimited AI response from stdin, validates it fully, previews the changes,
++//! and writes artifacts to the feature directory only on explicit confirmation.
++//!
++//! Security is the dominant concern of this module: import accepts AI-supplied
++//! paths and contents and writes them to disk. FEATURE_ID and path validation,
++//! line-start-only delimiter matching, and size limits are all enforced here.
++
++mod export;
++mod import;
++
++use std::fmt;
++use std::path::{Component, Path, PathBuf};
++
++use crate::Result;
++
++// --- SPECDRIVE delimiter scheme (LLR-002) ---------------------------------
++//
++// These are matched at line start only (LLR-017): a line either *is* one of the
++// fixed delimiters, or *begins with* the FILE prefix and ends with the FILE
++// suffix. Substring search is never used, so a delimiter embedded mid-line in
++// file contents can never terminate a block.
++
++pub const BEGIN: &str = "--- SPECDRIVE:BEGIN ---";
++pub const NOTES: &str = "--- SPECDRIVE:NOTES ---";
++pub const PROMPT: &str = "--- SPECDRIVE:PROMPT ---";
++pub const END: &str = "--- SPECDRIVE:END ---";
++pub const FILE_PREFIX: &str = "--- SPECDRIVE:FILE ";
++pub const FILE_SUFFIX: &str = " ---";
++
++/// The workflow a `chat` invocation targets.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum Workflow {
++    Draft,
++    Implement,
++}
++
++impl Workflow {
++    fn parse(s: &str) -> Option<Self> {
++        match s {
++            "draft" => Some(Workflow::Draft),
++            "implement" => Some(Workflow::Implement),
++            _ => None,
++        }
++    }
++}
++
++/// Error type for the `chat` command, carrying a CLI exit code.
++///
++/// Exit codes follow the contract:
++/// - 1: usage or precondition failure (invalid FEATURE_ID, missing
++///   spec/contract, dirty tree on import, malformed/oversized response,
++///   validation failure).
++/// - 2: underlying tool or IO failure.
++#[derive(Debug)]
++pub struct ChatError {
++    message: String,
++    exit_code: i32,
++}
++
++impl ChatError {
++    pub fn new(message: impl Into<String>, exit_code: i32) -> Self {
++        Self {
++            message: message.into(),
++            exit_code,
++        }
++    }
++
++    pub fn usage(message: impl Into<String>) -> Self {
++        Self::new(message, 1)
++    }
++
++    pub fn io(message: impl Into<String>) -> Self {
++        Self::new(message, 2)
++    }
++
++    pub fn exit_code(&self) -> i32 {
++        self.exit_code
++    }
++}
++
++impl fmt::Display for ChatError {
++    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++        write!(f, "{}", self.message)
++    }
++}
++
++impl std::error::Error for ChatError {}
++
++/// CLI entry point for `specdrive chat <export|import> <draft|implement> <FEATURE_ID>`.
++pub fn run(action: &str, workflow: &str, feature_id: &str) -> Result<()> {
++    match run_inner(action, workflow, feature_id) {
++        Ok(()) => Ok(()),
++        Err(e) => {
++            let err: Box<dyn std::error::Error + Send + Sync> = Box::new(e);
++            Err(err)
++        }
++    }
++}
++
++fn run_inner(action: &str, workflow: &str, feature_id: &str) -> std::result::Result<(), ChatError> {
++    let workflow = Workflow::parse(workflow).ok_or_else(|| {
++        ChatError::usage(format!(
++            "unknown chat workflow '{}': expected 'draft' or 'implement'",
++            workflow
++        ))
++    })?;
++
++    // FEATURE_ID is validated as a safe single-directory component before any
++    // path construction or filesystem operation (LLR-013, P-002, E-001).
++    validate_feature_id(feature_id)?;
++
++    match action {
++        "export" => export::run(workflow, feature_id),
++        "import" => import::run(workflow, feature_id),
++        other => Err(ChatError::usage(format!(
++            "unknown chat action '{}': expected 'export' or 'import'",
++            other
++        ))),
++    }
++}
++
++/// Validates FEATURE_ID as a safe single-directory component (LLR-013).
++///
++/// Only ASCII alphanumerics, hyphens, and underscores are permitted. This
++/// rejects path separators, traversal sequences (`..` contains `.`), null
++/// bytes, control characters, whitespace, and any other metacharacter before a
++/// path is ever constructed.
++pub fn validate_feature_id(feature_id: &str) -> std::result::Result<(), ChatError> {
++    if feature_id.is_empty() {
++        return Err(ChatError::usage("FEATURE_ID cannot be empty"));
++    }
++
++    let ok = feature_id
++        .bytes()
++        .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
++
++    if !ok {
++        return Err(ChatError::usage(format!(
++            "invalid FEATURE_ID '{}': only ASCII letters, digits, '-', and '_' are allowed \
++             (no path separators, traversal sequences, or control characters)",
++            feature_id
++        )));
++    }
++
++    Ok(())
++}
++
++/// Returns true if `line` is a SPECDRIVE delimiter, matched at line start only
++/// (LLR-017). The line must either equal one of the fixed delimiters exactly,
++/// or begin with the FILE prefix and end with the FILE suffix. Leading
++/// whitespace or surrounding text means it is ordinary content, not a
++/// delimiter.
++///
++/// This is the canonical line-start delimiter predicate for the SPECDRIVE
++/// scheme. `parse_response` open-codes the equivalent checks for its state
++/// machine; this function documents and tests the rule in one place.
++#[allow(dead_code)]
++pub fn is_delimiter_line(line: &str) -> bool {
++    line == BEGIN
++        || line == NOTES
++        || line == PROMPT
++        || line == END
++        || parse_file_path(line).is_some()
++}
++
++/// If `line` is a well-formed `--- SPECDRIVE:FILE <path> ---` delimiter,
++/// returns the trimmed `<path>`. Matching is line-start only.
++fn parse_file_path(line: &str) -> Option<&str> {
++    let inner = line.strip_prefix(FILE_PREFIX)?;
++    let path = inner.strip_suffix(FILE_SUFFIX)?;
++    let path = path.trim();
++    if path.is_empty() { None } else { Some(path) }
++}
++
++/// A FILE block parsed from an AI response.
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct ParsedFile {
++    /// The raw path string as supplied by the AI (repository-root relative).
++    pub path: String,
++    /// The inlined contents of the block.
++    pub contents: String,
++}
++
++/// The structured result of parsing a delimited AI response.
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct ParsedResponse {
++    /// NOTES block content, only `Some` when a NOTES block is present and has
++    /// non-whitespace content (LLR-012 — empty notes never produce an artifact).
++    pub notes: Option<String>,
++    /// FILE blocks in the order they appeared.
++    pub files: Vec<ParsedFile>,
++}
++
++/// Parses a delimited AI response (LLR-007, LLR-017).
++///
++/// Sections are delimited by line-start-only markers. Content lines accumulate
++/// into the currently open NOTES or FILE block. BEGIN, PROMPT, and END markers
++/// open no content block (any stray content outside a NOTES/FILE block is
++/// ignored). Parsing stops at the first END marker; callers are responsible for
++/// having already truncated input at END so that trailing content is ignored
++/// (LLR-005).
++pub fn parse_response(raw: &str) -> ParsedResponse {
++    enum Section {
++        None,
++        Notes,
++        File(usize),
++    }
++
++    let mut notes: Option<String> = None;
++    let mut files: Vec<ParsedFile> = Vec::new();
++    let mut section = Section::None;
++
++    for line in raw.split_inclusive('\n') {
++        // Work with the line without its trailing newline for delimiter
++        // comparison, but preserve the original (with newline) for content.
++        let logical = line.strip_suffix('\n').unwrap_or(line);
++        let logical = logical.strip_suffix('\r').unwrap_or(logical);
++
++        if logical == END {
++            break;
++        }
++
++        if logical == BEGIN || logical == PROMPT {
++            section = Section::None;
++            continue;
++        }
++
++        if logical == NOTES {
++            if notes.is_none() {
++                notes = Some(String::new());
++            }
++            section = Section::Notes;
++            continue;
++        }
++
++        if let Some(path) = parse_file_path(logical) {
++            files.push(ParsedFile {
++                path: path.to_string(),
++                contents: String::new(),
++            });
++            section = Section::File(files.len() - 1);
++            continue;
++        }
++
++        // Ordinary content line — append to the open block (with newline).
++        match section {
++            Section::Notes => {
++                if let Some(buf) = notes.as_mut() {
++                    buf.push_str(line);
++                }
++            }
++            Section::File(idx) => {
++                files[idx].contents.push_str(line);
++            }
++            Section::None => {}
++        }
++    }
++
++    // Empty / whitespace-only NOTES must not yield an artifact (LLR-012).
++    let notes = notes.filter(|n| !n.trim().is_empty());
++
++    ParsedResponse { notes, files }
++}
++
++/// Returns true if `rel` looks like an absolute path, checked *before* any
++/// canonicalization (LLR-014, E-007). Covers POSIX roots, Windows drive
++/// prefixes, and UNC paths so the same check is safe cross-platform.
++pub fn is_absolute_pattern(rel: &str) -> bool {
++    if rel.starts_with('/') || rel.starts_with('\\') {
++        return true;
++    }
++    if Path::new(rel).is_absolute() {
++        return true;
++    }
++    let bytes = rel.as_bytes();
++    // Windows drive prefix: e.g. "C:" or "C:\".
++    if bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
++        return true;
++    }
++    false
++}
++
++/// Lexically normalizes `base.join(rel)`, resolving `.` and `..` without
++/// touching the filesystem. Returns `None` if the path would escape above the
++/// root of `base` (i.e. a `..` pops past the start).
++fn normalize_lexical(base: &Path, rel: &str) -> Option<PathBuf> {
++    let joined = base.join(rel);
++    let mut out = PathBuf::new();
++    for comp in joined.components() {
++        match comp {
++            Component::CurDir => {}
++            Component::ParentDir => {
++                if !out.pop() {
++                    return None;
++                }
++            }
++            other => out.push(other.as_os_str()),
++        }
++    }
++    Some(out)
++}
++
++/// Finds the nearest existing ancestor of `path` (including `path` itself).
++fn nearest_existing(path: &Path) -> Option<PathBuf> {
++    let mut current = Some(path);
++    while let Some(p) = current {
++        if p.exists() {
++            return Some(p.to_path_buf());
++        }
++        current = p.parent();
++    }
++    None
++}
++
++/// Validates that an AI-supplied FILE path resolves strictly within
++/// `feature_dir` (LLR-014, LLR-015, LLR-016; E-007, E-008).
++///
++/// The path is interpreted relative to the repository root (the current working
++/// directory), matching the repository-root-relative paths emitted by export.
++///
++/// Validation order:
++/// 1. Absolute-path patterns are rejected before any canonicalization.
++/// 2. The path is normalized lexically; a `..` that escapes the feature
++///    directory is rejected even when the target does not exist.
++/// 3. The nearest existing ancestor is canonicalized and re-checked for
++///    containment, so a symlink pointing outside the feature directory is
++///    caught after resolution.
++///
++/// On success, returns the lexically-normalized absolute path (useful for
++/// identity comparisons, e.g. locating the contract block).
++pub fn validate_file_path(
++    feature_dir: &Path,
++    rel: &str,
++) -> std::result::Result<PathBuf, ChatError> {
++    if is_absolute_pattern(rel) {
++        return Err(ChatError::usage(format!(
++            "rejected absolute FILE path '{}': FILE paths must be relative and within {}",
++            rel,
++            feature_dir.display()
++        )));
++    }
++
++    let cwd = std::env::current_dir()
++        .map_err(|e| ChatError::io(format!("failed to determine working directory: {}", e)))?;
++
++    let feature_abs = normalize_lexical(&cwd, &feature_dir.to_string_lossy()).ok_or_else(|| {
++        ChatError::io(format!(
++            "failed to normalize feature directory {}",
++            feature_dir.display()
++        ))
++    })?;
++
++    // 2. Lexical containment (catches `..` traversal, even for paths that do
++    //    not yet exist — LLR-016).
++    let candidate_abs = normalize_lexical(&cwd, rel).ok_or_else(|| {
++        ChatError::usage(format!(
++            "rejected FILE path '{}': path traversal escapes the repository root",
++            rel
++        ))
++    })?;
++
++    if !candidate_abs.starts_with(&feature_abs) {
++        return Err(ChatError::usage(format!(
++            "rejected FILE path '{}': resolves outside the feature directory {}",
++            rel,
++            feature_dir.display()
++        )));
++    }
++
++    // 3. Symlink containment re-verification after resolution (LLR-015).
++    let feature_canon = feature_dir.canonicalize().map_err(|e| {
++        ChatError::io(format!(
++            "failed to canonicalize feature directory {}: {}",
++            feature_dir.display(),
++            e
++        ))
++    })?;
++
++    let on_disk = cwd.join(rel);
++    if let Some(ancestor) = nearest_existing(&on_disk) {
++        let ancestor_canon = ancestor.canonicalize().map_err(|e| {
++            ChatError::io(format!(
++                "failed to canonicalize path {}: {}",
++                ancestor.display(),
++                e
++            ))
++        })?;
++        if !ancestor_canon.starts_with(&feature_canon) {
++            return Err(ChatError::usage(format!(
++                "rejected FILE path '{}': resolves (via symlink) outside the feature directory {}",
++                rel,
++                feature_dir.display()
++            )));
++        }
++    }
++
++    Ok(candidate_abs)
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn test_validate_feature_id_accepts_safe() {
++        assert!(validate_feature_id("F-009-chat").is_ok());
++        assert!(validate_feature_id("F_009_chat").is_ok());
++        assert!(validate_feature_id("abc123").is_ok());
++    }
++
++    #[test]
++    fn test_validate_feature_id_rejects_unsafe() {
++        for bad in [
++            "",
++            "../etc",
++            "a/b",
++            "a\\b",
++            "..",
++            "F-009 chat",
++            "F-009\nchat",
++            "F-009\0chat",
++            "F.009",
++            "F-009-chat/",
++        ] {
++            assert!(
++                validate_feature_id(bad).is_err(),
++                "expected rejection of {:?}",
++                bad
++            );
++        }
++    }
++
++    #[test]
++    fn test_is_delimiter_line_line_start_only() {
++        assert!(is_delimiter_line(BEGIN));
++        assert!(is_delimiter_line(END));
++        assert!(is_delimiter_line(NOTES));
++        assert!(is_delimiter_line("--- SPECDRIVE:FILE docs/x.md ---"));
++
++        // Embedded / indented delimiters are NOT delimiters (injection guard).
++        assert!(!is_delimiter_line("  --- SPECDRIVE:END ---"));
++        assert!(!is_delimiter_line("text --- SPECDRIVE:END ---"));
++        assert!(!is_delimiter_line("--- SPECDRIVE:FILE  ---")); // empty path
++    }
++
++    #[test]
++    fn test_parse_response_basic() {
++        let raw = format!(
++            "{begin}\n{notes}\nHello note\n{file} docs/features/F-1/contract.yaml {suf}\nkey: value\n{end}\n",
++            begin = BEGIN,
++            notes = NOTES,
++            file = "--- SPECDRIVE:FILE",
++            suf = "---",
++            end = END,
++        );
++        let parsed = parse_response(&raw);
++        assert_eq!(parsed.notes.as_deref(), Some("Hello note\n"));
++        assert_eq!(parsed.files.len(), 1);
++        assert_eq!(parsed.files[0].path, "docs/features/F-1/contract.yaml");
++        assert_eq!(parsed.files[0].contents, "key: value\n");
++    }
++
++    #[test]
++    fn test_parse_response_ignores_embedded_delimiter() {
++        // A FILE block whose contents contain an indented END must not terminate.
++        let raw = format!(
++            "{begin}\n--- SPECDRIVE:FILE docs/features/F-1/contract.yaml ---\nline1\n  --- SPECDRIVE:END ---\nline2\n{end}\n",
++            begin = BEGIN,
++            end = END,
++        );
++        let parsed = parse_response(&raw);
++        assert_eq!(parsed.files.len(), 1);
++        assert_eq!(
++            parsed.files[0].contents,
++            "line1\n  --- SPECDRIVE:END ---\nline2\n"
++        );
++    }
++
++    #[test]
++    fn test_parse_response_stops_at_first_end() {
++        let raw = format!(
++            "{begin}\n--- SPECDRIVE:FILE docs/features/F-1/a.md ---\nkeep\n{end}\n--- SPECDRIVE:FILE docs/features/F-1/b.md ---\nignored\n",
++            begin = BEGIN,
++            end = END,
++        );
++        let parsed = parse_response(&raw);
++        assert_eq!(parsed.files.len(), 1);
++        assert_eq!(parsed.files[0].path, "docs/features/F-1/a.md");
++    }
++
++    #[test]
++    fn test_parse_response_empty_notes_is_none() {
++        let raw = format!(
++            "{begin}\n{notes}\n\n--- SPECDRIVE:FILE docs/features/F-1/a.md ---\nx\n{end}\n",
++            begin = BEGIN,
++            notes = NOTES,
++            end = END,
++        );
++        let parsed = parse_response(&raw);
++        assert_eq!(parsed.notes, None);
++        assert_eq!(parsed.files.len(), 1);
++    }
++
++    #[test]
++    fn test_is_absolute_pattern() {
++        assert!(is_absolute_pattern("/etc/passwd"));
++        assert!(is_absolute_pattern("\\\\server\\share"));
++        assert!(is_absolute_pattern("C:\\Windows"));
++        assert!(is_absolute_pattern("C:/Windows"));
++        assert!(!is_absolute_pattern("docs/features/F-1/contract.yaml"));
++        assert!(!is_absolute_pattern("contract.yaml"));
++    }
++}
+diff --git a/src/cli.rs b/src/cli.rs
+index f3feb7b..a23b998 100644
+--- a/src/cli.rs
++++ b/src/cli.rs
+@@ -1,5 +1,6 @@
+ use crate::Result;
+ use crate::bootstrap;
++use crate::chat;
+ use crate::draft;
+ use crate::feature;
+ use crate::implement;
+@@ -58,6 +59,19 @@ pub fn run() -> Result<()> {
+                 _ => Err(format!("unknown patch action: {}", action).into()),
+             }
+         }
++        "chat" => {
++            // Per F-009 contract: chat export|import <draft|implement> <FEATURE_ID>
++            let Some(action) = args.next() else {
++                return Err("chat requires an action (export|import)".into());
++            };
++            let Some(workflow) = args.next() else {
++                return Err(format!("chat {action} requires <draft|implement>").into());
++            };
++            let Some(feature_id) = args.next() else {
++                return Err(format!("chat {action} {workflow} requires <FEATURE_ID>").into());
++            };
++            chat::run(&action, &workflow, &feature_id)
++        }
+         "help" | "-h" | "--help" => {
+             print_usage();
+             Ok(())
+@@ -78,5 +92,7 @@ fn print_usage() {
+     eprintln!("  specdrive implement <FEATURE_ID>");
+     eprintln!("  specdrive draft <FEATURE_ID>");
+     eprintln!("  specdrive patch emit <FEATURE_ID>");
++    eprintln!("  specdrive chat export <draft|implement> <FEATURE_ID>");
++    eprintln!("  specdrive chat import <draft|implement> <FEATURE_ID>");
+     eprintln!("  specdrive help");
+ }
+diff --git a/src/config.rs b/src/config.rs
+index b3d66d8..fefd7dc 100644
+--- a/src/config.rs
++++ b/src/config.rs
+@@ -93,6 +93,128 @@ pub struct Config {
+     /// Naming conventions configuration
+     #[serde(default)]
+     pub naming: Option<NamingSection>,
++    /// Chat export/import configuration (F-009)
++    #[serde(default)]
++    pub chat: Option<ChatSection>,
++}
++
++/// Chat workflow configuration section (F-009).
++#[derive(Debug, Deserialize)]
++pub struct ChatSection {
++    /// Import-side configuration.
++    #[serde(default)]
++    pub import: Option<ChatImportSection>,
++}
++
++/// Raw, unvalidated `chat.import` size-limit configuration (F-009).
++///
++/// Values are read as untyped YAML so that invalid or unsafe values (zero,
++/// negative, or non-integer) can be detected and replaced with built-in
++/// defaults plus a warning, per LLR-025, rather than causing a hard parse
++/// failure of the whole config file.
++#[derive(Debug, Deserialize)]
++pub struct ChatImportSection {
++    #[serde(default)]
++    pub max_file_blocks: Option<serde_yaml::Value>,
++    #[serde(default)]
++    pub max_file_size_bytes: Option<serde_yaml::Value>,
++    #[serde(default)]
++    pub max_response_size_bytes: Option<serde_yaml::Value>,
++}
++
++/// Resolved, validated `chat.import` size limits (F-009).
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub struct ChatImportLimits {
++    pub max_file_blocks: usize,
++    pub max_file_size_bytes: u64,
++    pub max_response_size_bytes: u64,
++}
++
++impl ChatImportLimits {
++    pub const DEFAULT_MAX_FILE_BLOCKS: usize = 20;
++    pub const DEFAULT_MAX_FILE_SIZE_BYTES: u64 = 1_048_576; // 1 MB
++    pub const DEFAULT_MAX_RESPONSE_SIZE_BYTES: u64 = 5_242_880; // 5 MB
++
++    /// Built-in defaults applied when config is absent or values are invalid.
++    pub fn defaults() -> Self {
++        Self {
++            max_file_blocks: Self::DEFAULT_MAX_FILE_BLOCKS,
++            max_file_size_bytes: Self::DEFAULT_MAX_FILE_SIZE_BYTES,
++            max_response_size_bytes: Self::DEFAULT_MAX_RESPONSE_SIZE_BYTES,
++        }
++    }
++}
++
++/// Coerces a raw YAML config value into a positive integer, falling back to the
++/// supplied default (with a warning) if the value is absent, not an integer,
++/// zero, or negative. Per LLR-025 / E-012.
++fn coerce_positive_limit(field: &Option<serde_yaml::Value>, name: &str, default: u64) -> u64 {
++    match field {
++        None => default,
++        Some(value) => match value.as_u64() {
++            Some(n) if n > 0 => n,
++            _ => {
++                eprintln!(
++                    "warning: chat.import.{} is invalid (must be a positive integer); \
++                     using built-in default {}",
++                    name, default
++                );
++                default
++            }
++        },
++    }
++}
++
++/// Loads and validates the `chat.import` size limits (F-009).
++///
++/// Built-in defaults apply if the config file is absent, the `chat.import`
++/// namespace is unset, or any individual value is invalid or unsafe. Invalid
++/// values produce a warning and fall back to the default for that field only
++/// (LLR-024, LLR-025). A config file that cannot be parsed at all is treated as
++/// "use defaults" with a warning, since size limits must never hard-fail the
++/// import path.
++pub fn load_chat_import_limits() -> ChatImportLimits {
++    let defaults = ChatImportLimits::defaults();
++
++    let config = match Config::load() {
++        Ok(Some(c)) => c,
++        Ok(None) => return defaults,
++        Err(e) => {
++            eprintln!("warning: {}; using built-in chat import limits", e);
++            return defaults;
++        }
++    };
++
++    let Some(import) = config.chat.and_then(|c| c.import) else {
++        return defaults;
++    };
++
++    resolve_chat_import_limits(&import)
++}
++
++/// Resolves a raw `chat.import` section into validated limits, applying
++/// built-in defaults (with a warning) for any absent or invalid value. Split
++/// out from [`load_chat_import_limits`] so the validation logic is testable
++/// without touching the filesystem.
++fn resolve_chat_import_limits(import: &ChatImportSection) -> ChatImportLimits {
++    let defaults = ChatImportLimits::defaults();
++    ChatImportLimits {
++        max_file_blocks: coerce_positive_limit(
++            &import.max_file_blocks,
++            "max_file_blocks",
++            defaults.max_file_blocks as u64,
++        ) as usize,
++        max_file_size_bytes: coerce_positive_limit(
++            &import.max_file_size_bytes,
++            "max_file_size_bytes",
++            defaults.max_file_size_bytes,
++        ),
++        max_response_size_bytes: coerce_positive_limit(
++            &import.max_response_size_bytes,
++            "max_response_size_bytes",
++            defaults.max_response_size_bytes,
++        ),
++    }
+ }
+ 
+ /// Naming conventions section
+@@ -383,6 +505,96 @@ naming:
+         assert_eq!(parse_err.exit_code(), 2);
+     }
+ 
++    // These tests exercise the pure limit-resolution logic without touching the
++    // filesystem or the process working directory, to avoid the cwd races that
++    // affect the config-loading tests.
++
++    fn parse_import(yaml: &str) -> ChatImportSection {
++        let config: Config = serde_yaml::from_str(yaml).unwrap();
++        config.chat.unwrap().import.unwrap()
++    }
++
++    #[test]
++    fn test_chat_import_limits_valid_overrides() {
++        let import = parse_import(
++            r#"
++schema_version: 1
++chat:
++  import:
++    max_file_blocks: 5
++    max_file_size_bytes: 2048
++    max_response_size_bytes: 10000
++"#,
++        );
++        let limits = resolve_chat_import_limits(&import);
++        assert_eq!(limits.max_file_blocks, 5);
++        assert_eq!(limits.max_file_size_bytes, 2048);
++        assert_eq!(limits.max_response_size_bytes, 10000);
++    }
++
++    #[test]
++    fn test_chat_import_limits_invalid_values_fall_back() {
++        // zero, negative, and non-integer values must all fall back to defaults.
++        let import = parse_import(
++            r#"
++schema_version: 1
++chat:
++  import:
++    max_file_blocks: 0
++    max_file_size_bytes: -10
++    max_response_size_bytes: "lots"
++"#,
++        );
++        let limits = resolve_chat_import_limits(&import);
++        assert_eq!(limits, ChatImportLimits::defaults());
++    }
++
++    #[test]
++    fn test_chat_import_limits_partial_override() {
++        let import = parse_import(
++            r#"
++schema_version: 1
++chat:
++  import:
++    max_file_blocks: 7
++"#,
++        );
++        let limits = resolve_chat_import_limits(&import);
++        assert_eq!(limits.max_file_blocks, 7);
++        // Unspecified fields keep defaults.
++        assert_eq!(
++            limits.max_file_size_bytes,
++            ChatImportLimits::DEFAULT_MAX_FILE_SIZE_BYTES
++        );
++        assert_eq!(
++            limits.max_response_size_bytes,
++            ChatImportLimits::DEFAULT_MAX_RESPONSE_SIZE_BYTES
++        );
++    }
++
++    #[test]
++    fn test_coerce_positive_limit() {
++        use serde_yaml::Value;
++        assert_eq!(coerce_positive_limit(&None, "x", 99), 99);
++        assert_eq!(
++            coerce_positive_limit(&Some(Value::Number(42.into())), "x", 99),
++            42
++        );
++        // zero, negative, and string all fall back.
++        assert_eq!(
++            coerce_positive_limit(&Some(Value::Number(0.into())), "x", 99),
++            99
++        );
++        assert_eq!(
++            coerce_positive_limit(&Some(Value::Number((-5i64).into())), "x", 99),
++            99
++        );
++        assert_eq!(
++            coerce_positive_limit(&Some(Value::String("nope".into())), "x", 99),
++            99
++        );
++    }
++
+     #[test]
+     fn test_config_error_display() {
+         let err = ConfigError::SafetyViolation {
+diff --git a/src/draft.rs b/src/draft.rs
+index fbb2e83..e2d2aa6 100644
+--- a/src/draft.rs
++++ b/src/draft.rs
+@@ -1,6 +1,7 @@
+ use crate::Result;
+ use crate::config;
+ use crate::fsutil;
++use crate::resolve::{self, FileRole};
+ use crate::utils;
+ use std::fmt;
+ use std::fs;
+@@ -204,40 +205,51 @@ fn build_draft_prompt(ctx: &DraftPromptContext<'_>) -> String {
+     );
+     prompt.push_str("Use the appropriate contract template (minimal vs critical).\n\n");
+ 
+-    prompt.push_str("Files you MUST read before drafting the contract:\n");
+-    prompt.push_str(&format!(
+-        "- {} (feature spec)\n",
+-        ctx.feature_paths.spec.display()
+-    ));
+-    prompt.push_str(&format!(
+-        "- {} (current or skeleton)\n",
+-        ctx.feature_paths.contract.display()
+-    ));
+-
+-    if let Some(path) = ctx.constitution.path() {
+-        prompt.push_str(&format!("- {}\n", path.display()));
+-    }
++    // The set of context files is sourced from the shared draft resolver
++    // (F-009, AC-13) so the existing read-validation, this prompt, and
++    // `chat export` all agree on which files make up the draft context. The
++    // ctx fields below are retained for read-validation in the caller.
++    let _ = (
++        &ctx.template_paths,
++        &ctx.system_overview,
++        &ctx.constitution,
++        &ctx.adr_files,
++    );
+ 
+-    if !ctx.adr_files.is_empty() {
+-        prompt.push_str("- Architecture Decision Records (ADRs):\n");
+-        for adr in ctx.adr_files {
+-            prompt.push_str(&format!("  - {}\n", adr.display()));
++    prompt.push_str("Files you MUST read before drafting the contract:\n");
++    let mut adr_header_written = false;
++    for file in resolve::resolve_draft_files(ctx.feature_id) {
++        match file.role {
++            FileRole::Spec => {
++                prompt.push_str(&format!("- {} (feature spec)\n", file.path.display()));
++            }
++            FileRole::Contract => {
++                prompt.push_str(&format!(
++                    "- {} (current or skeleton)\n",
++                    file.path.display()
++                ));
++            }
++            FileRole::Constitution | FileRole::SystemOverview => {
++                if file.path.exists() {
++                    prompt.push_str(&format!("- {}\n", file.path.display()));
++                }
++            }
++            FileRole::Adr => {
++                if !adr_header_written {
++                    prompt.push_str("- Architecture Decision Records (ADRs):\n");
++                    adr_header_written = true;
++                }
++                prompt.push_str(&format!("  - {}\n", file.path.display()));
++            }
++            FileRole::MinimalTemplate => {
++                prompt.push_str(&format!("- {} (minimal template)\n", file.path.display()));
++            }
++            FileRole::CriticalTemplate => {
++                prompt.push_str(&format!("- {} (critical template)\n", file.path.display()));
++            }
+         }
+     }
+ 
+-    if let Some(path) = ctx.system_overview.path() {
+-        prompt.push_str(&format!("- {}\n", path.display()));
+-    }
+-
+-    prompt.push_str(&format!(
+-        "- {} (minimal template)\n",
+-        ctx.template_paths.minimal.display()
+-    ));
+-    prompt.push_str(&format!(
+-        "- {} (critical template)\n",
+-        ctx.template_paths.critical.display()
+-    ));
+-
+     prompt.push('\n');
+ 
+     prompt.push_str("Guidance for drafting the contract:\n");
+diff --git a/src/fsutil.rs b/src/fsutil.rs
+index 3cfd097..528de36 100644
+--- a/src/fsutil.rs
++++ b/src/fsutil.rs
+@@ -250,6 +250,48 @@ pub fn copy_template_with_replacements(
+     Ok(())
+ }
+ 
++/// Computes the next zero-padded numbered filename in `dir` matching the
++/// pattern `<prefix><NNN><suffix>` (for example `notes-` + `001` + `.md`).
++///
++/// Per F-009 LLR-011, the next number is the highest existing NNN matching the
++/// pattern in the directory, plus one. Gaps never cause overwrites — if `001`
++/// and `003` exist, `004` is returned. If the directory does not exist or holds
++/// no matching files, the sequence starts at `001`.
++///
++/// This is a reusable utility intended for any feature that writes numbered
++/// output artifacts. It never creates the directory and never fails: an
++/// unreadable directory simply yields the first number.
++pub fn next_numbered_filename(dir: &Path, prefix: &str, suffix: &str) -> String {
++    let mut highest: u32 = 0;
++
++    if let Ok(entries) = fs::read_dir(dir) {
++        for entry in entries.flatten() {
++            let name = entry.file_name();
++            let Some(name) = name.to_str() else { continue };
++
++            // Match `<prefix><digits><suffix>` exactly, where the middle is a
++            // run of ASCII digits. Anything else is ignored.
++            let Some(rest) = name.strip_prefix(prefix) else {
++                continue;
++            };
++            let Some(digits) = rest.strip_suffix(suffix) else {
++                continue;
++            };
++            if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
++                continue;
++            }
++            if let Ok(n) = digits.parse::<u32>()
++                && n > highest
++            {
++                highest = n;
++            }
++        }
++    }
++
++    let next = highest.saturating_add(1);
++    format!("{}{:03}{}", prefix, next, suffix)
++}
++
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+@@ -548,6 +590,48 @@ mod tests {
+         assert!(absent.path().is_none());
+     }
+ 
++    #[test]
++    fn test_next_numbered_filename_empty_dir() {
++        let temp = TempDir::new().unwrap();
++        let name = next_numbered_filename(temp.path(), "notes-", ".md");
++        assert_eq!(name, "notes-001.md");
++    }
++
++    #[test]
++    fn test_next_numbered_filename_missing_dir() {
++        let temp = TempDir::new().unwrap();
++        let missing = temp.path().join("does-not-exist");
++        let name = next_numbered_filename(&missing, "implement-", ".raw.md");
++        assert_eq!(name, "implement-001.raw.md");
++    }
++
++    #[test]
++    fn test_next_numbered_filename_gaps_do_not_overwrite() {
++        let temp = TempDir::new().unwrap();
++        // 001 and 003 present, 002 is a gap. Next must be 004, not 002.
++        fs::write(temp.path().join("notes-001.md"), "a").unwrap();
++        fs::write(temp.path().join("notes-003.md"), "b").unwrap();
++        // Files that don't match the pattern must be ignored.
++        fs::write(temp.path().join("notes-xyz.md"), "c").unwrap();
++        fs::write(temp.path().join("implement-002.raw.md"), "d").unwrap();
++
++        let name = next_numbered_filename(temp.path(), "notes-", ".md");
++        assert_eq!(name, "notes-004.md");
++    }
++
++    #[test]
++    fn test_next_numbered_filename_distinct_patterns() {
++        let temp = TempDir::new().unwrap();
++        fs::write(temp.path().join("implement-001.raw.md"), "a").unwrap();
++        fs::write(temp.path().join("implement-002.raw.md"), "b").unwrap();
++
++        let name = next_numbered_filename(temp.path(), "implement-", ".raw.md");
++        assert_eq!(name, "implement-003.raw.md");
++        // The notes pattern is independent and starts fresh.
++        let notes = next_numbered_filename(temp.path(), "notes-", ".md");
++        assert_eq!(notes, "notes-001.md");
++    }
++
+     #[test]
+     fn test_error_display() {
+         let err = FeaturePathError::MissingSpec(PathBuf::from("test.spec.md"));
+diff --git a/src/implement.rs b/src/implement.rs
+index c69b6f1..7ed1c97 100644
+--- a/src/implement.rs
++++ b/src/implement.rs
+@@ -1,6 +1,7 @@
+ use crate::Result;
+ use crate::config;
+ use crate::fsutil;
++use crate::resolve::{self, FileRole};
+ use crate::utils;
+ use std::fmt;
+ use std::fs;
+@@ -193,30 +194,21 @@ fn implement_feature_inner(feature_id: &str) -> std::result::Result<(), Implemen
+     };
+ 
+     // 9. Build and print the prompt
+-    let prompt = build_prompt(
+-        feature_id,
+-        &feature_paths,
+-        &constitution,
+-        &system_overview,
+-        &adr_files,
+-        header.as_deref(),
+-        footer.as_deref(),
+-    );
++    //
++    // The set of context files is sourced from the shared resolver (F-009,
++    // AC-13) so that the existing read-validation above, this prompt, and
++    // `chat export` all agree on exactly which files make up the implement
++    // context. The optional docs discovered above are still used for
++    // read-validation; the listing below is driven by the resolver.
++    let _ = (&constitution, &system_overview, &adr_files);
++    let prompt = build_prompt(feature_id, header.as_deref(), footer.as_deref());
+ 
+     println!("{}", prompt);
+ 
+     Ok(())
+ }
+ 
+-fn build_prompt(
+-    feature_id: &str,
+-    feature_paths: &fsutil::FeaturePaths,
+-    constitution: &fsutil::OptionalDoc,
+-    system_overview: &fsutil::OptionalDoc,
+-    adr_files: &[PathBuf],
+-    header: Option<&str>,
+-    footer: Option<&str>,
+-) -> String {
++fn build_prompt(feature_id: &str, header: Option<&str>, footer: Option<&str>) -> String {
+     let mut prompt = String::new();
+ 
+     // Optional header
+@@ -237,23 +229,27 @@ fn build_prompt(
+         "The spec and contract are the source of truth. Do NOT modify them unless explicitly instructed.\n\n",
+     );
+ 
+-    // Files to read
++    // Files to read — sourced from the shared implement resolver.
+     prompt.push_str("Files you MUST read before coding:\n");
+-    prompt.push_str(&format!("- {}\n", feature_paths.spec.display()));
+-    prompt.push_str(&format!("- {}\n", feature_paths.contract.display()));
+-
+-    if let Some(path) = constitution.path() {
+-        prompt.push_str(&format!("- {}\n", path.display()));
+-    }
+-
+-    if let Some(path) = system_overview.path() {
+-        prompt.push_str(&format!("- {}\n", path.display()));
+-    }
+-
+-    if !adr_files.is_empty() {
+-        prompt.push_str("- Architecture Decision Records (ADRs):\n");
+-        for adr in adr_files {
+-            prompt.push_str(&format!("  - {}\n", adr.display()));
++    let mut adr_header_written = false;
++    for file in resolve::resolve_implement_files(feature_id) {
++        match file.role {
++            FileRole::Spec | FileRole::Contract => {
++                prompt.push_str(&format!("- {}\n", file.path.display()));
++            }
++            FileRole::Constitution | FileRole::SystemOverview => {
++                if file.path.exists() {
++                    prompt.push_str(&format!("- {}\n", file.path.display()));
++                }
++            }
++            FileRole::Adr => {
++                if !adr_header_written {
++                    prompt.push_str("- Architecture Decision Records (ADRs):\n");
++                    adr_header_written = true;
++                }
++                prompt.push_str(&format!("  - {}\n", file.path.display()));
++            }
++            FileRole::MinimalTemplate | FileRole::CriticalTemplate => {}
+         }
+     }
+ 
+diff --git a/src/main.rs b/src/main.rs
+index ec6999a..c3c134a 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -1,6 +1,7 @@
+ pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
+ 
+ mod bootstrap;
++mod chat;
+ mod cli;
+ mod config;
+ mod draft;
+@@ -10,6 +11,7 @@ mod fsutil;
+ mod git;
+ mod implement;
+ mod patch;
++mod resolve;
+ mod utils;
+ 
+ fn main() {
+@@ -29,6 +31,8 @@ fn main() {
+             config_err.exit_code()
+         } else if let Some(patch_err) = err.downcast_ref::<patch::PatchError>() {
+             patch_err.exit_code()
++        } else if let Some(chat_err) = err.downcast_ref::<chat::ChatError>() {
++            chat_err.exit_code()
+         } else {
+             1 // Default exit code for all other errors
+         };
+diff --git a/src/resolve.rs b/src/resolve.rs
+new file mode 100644
+index 0000000..c1db758
+--- /dev/null
++++ b/src/resolve.rs
+@@ -0,0 +1,191 @@
++//! Shared file resolution for spec-aware commands.
++//!
++//! Per F-009, the set of files that make up the context for the `draft` and
++//! `implement` workflows is determined by these resolver functions and nothing
++//! else. They are the single source of truth shared by the existing `draft`
++//! and `implement` commands and the new `chat export` command. Export must not
++//! perform any recursive or additional file discovery beyond what these
++//! functions return (LLR-001, AC-16, AC-22).
++
++use std::path::PathBuf;
++
++use crate::fsutil;
++
++/// The role a resolved file plays in a workflow context bundle.
++///
++/// Roles let consumers (the `draft`/`implement` prompt builders and the
++/// `chat export` bundle assembler) format or inline each file appropriately
++/// without re-deriving what each path is.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum FileRole {
++    Spec,
++    Contract,
++    Constitution,
++    SystemOverview,
++    Adr,
++    MinimalTemplate,
++    CriticalTemplate,
++}
++
++/// A single file in a resolved workflow context.
++#[derive(Debug, Clone)]
++pub struct ResolvedFile {
++    /// Repository-root-relative path to the file.
++    pub path: PathBuf,
++    /// The role this file plays in the workflow context.
++    pub role: FileRole,
++    /// Whether the file is required. Spec and contract are required; all
++    /// supporting context (constitution, system overview, ADRs, templates) is
++    /// optional and may be missing without failing the workflow.
++    pub required: bool,
++}
++
++impl ResolvedFile {
++    fn new(path: PathBuf, role: FileRole, required: bool) -> Self {
++        Self {
++            path,
++            role,
++            required,
++        }
++    }
++}
++
++/// Resolves the file list for the `draft` workflow.
++///
++/// Per LLR-026, this returns, in order:
++/// spec.md, contract.yaml, constitution, all ADR files, system overview, and
++/// both contract templates (minimal and critical).
++///
++/// Spec and contract are marked required; all other files are optional context
++/// that may be absent. ADRs are discovered via [`fsutil::find_adrs`], which
++/// only returns files that exist. Constitution, system overview, and the
++/// templates are returned as candidate paths regardless of existence so that
++/// callers can decide whether to warn (export) or silently omit (draft prompt).
++pub fn resolve_draft_files(feature_id: &str) -> Vec<ResolvedFile> {
++    let fp = fsutil::FeaturePaths::new(feature_id);
++    let tp = fsutil::TemplatePaths::new();
++
++    let mut files = vec![
++        ResolvedFile::new(fp.spec, FileRole::Spec, true),
++        ResolvedFile::new(fp.contract, FileRole::Contract, true),
++        ResolvedFile::new(
++            PathBuf::from("docs/constitution.md"),
++            FileRole::Constitution,
++            false,
++        ),
++    ];
++    files.extend(
++        fsutil::find_adrs()
++            .into_iter()
++            .map(|adr| ResolvedFile::new(adr, FileRole::Adr, false)),
++    );
++    files.push(ResolvedFile::new(
++        PathBuf::from("docs/system-overview.md"),
++        FileRole::SystemOverview,
++        false,
++    ));
++    files.push(ResolvedFile::new(
++        tp.minimal,
++        FileRole::MinimalTemplate,
++        false,
++    ));
++    files.push(ResolvedFile::new(
++        tp.critical,
++        FileRole::CriticalTemplate,
++        false,
++    ));
++
++    files
++}
++
++/// Resolves the file list for the `implement` workflow.
++///
++/// Per LLR-026, this returns, in order:
++/// spec.md, contract.yaml, constitution, system overview, and all ADR files.
++/// Templates are intentionally excluded for implement.
++pub fn resolve_implement_files(feature_id: &str) -> Vec<ResolvedFile> {
++    let fp = fsutil::FeaturePaths::new(feature_id);
++
++    let mut files = vec![
++        ResolvedFile::new(fp.spec, FileRole::Spec, true),
++        ResolvedFile::new(fp.contract, FileRole::Contract, true),
++        ResolvedFile::new(
++            PathBuf::from("docs/constitution.md"),
++            FileRole::Constitution,
++            false,
++        ),
++        ResolvedFile::new(
++            PathBuf::from("docs/system-overview.md"),
++            FileRole::SystemOverview,
++            false,
++        ),
++    ];
++    files.extend(
++        fsutil::find_adrs()
++            .into_iter()
++            .map(|adr| ResolvedFile::new(adr, FileRole::Adr, false)),
++    );
++
++    files
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    // These tests assert the static structure of the resolver output (roles,
++    // ordering, required flags, template inclusion). They are independent of
++    // the working directory: the candidate set always includes the same roles;
++    // only which optional files actually exist varies, and that is decided by
++    // consumers, not the resolver.
++
++    #[test]
++    fn test_resolve_draft_includes_templates() {
++        let files = resolve_draft_files("F-009-chat");
++        let roles: Vec<FileRole> = files.iter().map(|f| f.role).collect();
++
++        assert_eq!(roles[0], FileRole::Spec);
++        assert_eq!(roles[1], FileRole::Contract);
++        // Draft must include both contract templates.
++        assert!(roles.contains(&FileRole::MinimalTemplate));
++        assert!(roles.contains(&FileRole::CriticalTemplate));
++
++        // Spec is first; both templates are last, in minimal-then-critical order.
++        assert_eq!(roles[roles.len() - 2], FileRole::MinimalTemplate);
++        assert_eq!(roles[roles.len() - 1], FileRole::CriticalTemplate);
++    }
++
++    #[test]
++    fn test_resolve_implement_excludes_templates() {
++        let files = resolve_implement_files("F-009-chat");
++        let roles: Vec<FileRole> = files.iter().map(|f| f.role).collect();
++
++        assert_eq!(roles[0], FileRole::Spec);
++        assert_eq!(roles[1], FileRole::Contract);
++        // Implement must NOT include templates.
++        assert!(!roles.contains(&FileRole::MinimalTemplate));
++        assert!(!roles.contains(&FileRole::CriticalTemplate));
++    }
++
++    #[test]
++    fn test_spec_and_contract_required() {
++        let files = resolve_draft_files("F-009-chat");
++        for f in &files {
++            let required = matches!(f.role, FileRole::Spec | FileRole::Contract);
++            assert_eq!(f.required, required, "role {:?}", f.role);
++        }
++    }
++
++    #[test]
++    fn test_resolve_uses_feature_local_paths() {
++        let files = resolve_draft_files("F-009-chat");
++        assert_eq!(
++            files[0].path,
++            PathBuf::from("docs/features/F-009-chat/spec.md")
++        );
++        assert_eq!(
++            files[1].path,
++            PathBuf::from("docs/features/F-009-chat/contract.yaml")
++        );
++    }
++}
+diff --git a/tests/chat_tests.rs b/tests/chat_tests.rs
+new file mode 100644
+index 0000000..6873ec8
+--- /dev/null
++++ b/tests/chat_tests.rs
+@@ -0,0 +1,538 @@
++//! Integration tests for `specdrive chat export` / `chat import` (F-009).
++//!
++//! These run the built binary in a temporary git repository with the canonical
++//! feature-local layout. They use subprocess working directories (not the
++//! process cwd), so they are safe to run in parallel.
++
++use std::fs;
++use std::io::Write;
++use std::path::Path;
++use std::process::{Command, Stdio};
++
++const BEGIN: &str = "--- SPECDRIVE:BEGIN ---";
++const NOTES: &str = "--- SPECDRIVE:NOTES ---";
++const PROMPT: &str = "--- SPECDRIVE:PROMPT ---";
++const END: &str = "--- SPECDRIVE:END ---";
++
++const VALID_CONTRACT: &str = "schema_version: 1\nmetadata:\n  id: F-001\n  title: Test\nrequirements:\n  high_level: []\n  low_level: []\n";
++
++fn setup_test_repo() -> tempfile::TempDir {
++    let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
++    let repo_path = temp_dir.path();
++
++    Command::new("git")
++        .args(["init"])
++        .current_dir(repo_path)
++        .output()
++        .expect("git init");
++    Command::new("git")
++        .args(["config", "user.email", "test@example.com"])
++        .current_dir(repo_path)
++        .output()
++        .expect("git config email");
++    Command::new("git")
++        .args(["config", "user.name", "Test User"])
++        .current_dir(repo_path)
++        .output()
++        .expect("git config name");
++
++    temp_dir
++}
++
++/// Lays out a complete feature with supporting docs and templates.
++fn scaffold(repo: &Path, feature_id: &str) {
++    let fdir = repo.join("docs/features").join(feature_id);
++    fs::create_dir_all(&fdir).unwrap();
++    fs::write(fdir.join("spec.md"), "# Spec\n\nSPEC_BODY\n").unwrap();
++    fs::write(fdir.join("contract.yaml"), VALID_CONTRACT).unwrap();
++    fs::create_dir_all(fdir.join("patches")).unwrap();
++
++    let docs = repo.join("docs");
++    fs::write(docs.join("constitution.md"), "# Constitution\nCONST_BODY\n").unwrap();
++    fs::write(
++        docs.join("system-overview.md"),
++        "# Overview\nOVERVIEW_BODY\n",
++    )
++    .unwrap();
++
++    let adrs = docs.join("adrs");
++    fs::create_dir_all(&adrs).unwrap();
++    fs::write(adrs.join("ADR-0001-x.md"), "# ADR 1\nADR_BODY\n").unwrap();
++
++    let templates = docs.join("templates");
++    fs::create_dir_all(&templates).unwrap();
++    fs::write(
++        templates.join("feature.contract.minimal.yaml"),
++        "minimal_template: true\n",
++    )
++    .unwrap();
++    fs::write(
++        templates.join("feature.contract.critical.yaml"),
++        "critical_template: true\n",
++    )
++    .unwrap();
++}
++
++fn git_commit_all(repo: &Path) {
++    Command::new("git")
++        .args(["add", "-A"])
++        .current_dir(repo)
++        .output()
++        .unwrap();
++    Command::new("git")
++        .args(["commit", "-m", "init"])
++        .current_dir(repo)
++        .output()
++        .unwrap();
++}
++
++fn run(repo: &Path, args: &[&str]) -> (i32, String, String) {
++    run_with_stdin(repo, args, "")
++}
++
++fn run_with_stdin(repo: &Path, args: &[&str], stdin_data: &str) -> (i32, String, String) {
++    let mut child = Command::new(env!("CARGO_BIN_EXE_specdrive"))
++        .args(args)
++        .current_dir(repo)
++        .stdin(Stdio::piped())
++        .stdout(Stdio::piped())
++        .stderr(Stdio::piped())
++        .spawn()
++        .expect("spawn specdrive");
++
++    {
++        let mut stdin = child.stdin.take().unwrap();
++        stdin.write_all(stdin_data.as_bytes()).unwrap();
++        // stdin dropped here -> EOF
++    }
++
++    let output = child.wait_with_output().expect("wait");
++    (
++        output.status.code().unwrap_or(-1),
++        String::from_utf8_lossy(&output.stdout).to_string(),
++        String::from_utf8_lossy(&output.stderr).to_string(),
++    )
++}
++
++// --- Export ---------------------------------------------------------------
++
++/// TC-001 / TC-003: export draft prints a well-formed, ordered bundle.
++#[test]
++fn export_draft_prints_ordered_bundle() {
++    let temp = setup_test_repo();
++    let repo = temp.path();
++    scaffold(repo, "F-001");
++    git_commit_all(repo);
++
++    let (code, stdout, _stderr) = run(repo, &["chat", "export", "draft", "F-001"]);
++    assert_eq!(code, 0, "stdout: {}", stdout);
++
++    let pb = stdout.find(BEGIN).expect("BEGIN");
++    let pn = stdout.find(NOTES).expect("NOTES");
++    let pf = stdout
++        .find("--- SPECDRIVE:FILE ")
++        .expect("at least one FILE");
++    let pp = stdout.find(PROMPT).expect("PROMPT");
++    let pe = stdout.find(END).expect("END");
++    assert!(pb < pn && pn < pf && pf < pp && pp < pe, "ordering wrong");
++
++    // Files are inlined.
++    assert!(stdout.contains("SPEC_BODY"));
++    assert!(stdout.contains("CONST_BODY"));
++    assert!(stdout.contains("ADR_BODY"));
++    // Draft includes templates.
++    assert!(stdout.contains("minimal_template: true"));
++    assert!(stdout.contains("critical_template: true"));
++}
++
++/// TC-002: export implement inlines implement files; templates excluded.
++#[test]
++fn export_implement_excludes_templates() {
++    let temp = setup_test_repo();
++    let repo = temp.path();
++    scaffold(repo, "F-001");
++    git_commit_all(repo);
++
++    let (code, stdout, _stderr) = run(repo, &["chat", "export", "implement", "F-001"]);
++    assert_eq!(code, 0);
++
++    assert!(stdout.contains("SPEC_BODY"));
++    assert!(stdout.contains("OVERVIEW_BODY"));
++    // Implement must NOT include templates.
++    assert!(!stdout.contains("minimal_template: true"));
++    assert!(!stdout.contains("critical_template: true"));
++}
++
++/// TC-017 / AC-18: export succeeds on a dirty tree (no clean-tree check).
++#[test]
++fn export_succeeds_on_dirty_tree() {
++    let temp = setup_test_repo();
++    let repo = temp.path();
++    scaffold(repo, "F-001");
++    git_commit_all(repo);
++
++    // Dirty a tracked file.
++    fs::write(repo.join("docs/features/F-001/spec.md"), "# Spec\nDIRTY\n").unwrap();
++
++    let (code, stdout, _stderr) = run(repo, &["chat", "export", "draft", "F-001"]);
++    assert_eq!(
++        code, 0,
++        "export must succeed on dirty tree; stdout: {}",
++        stdout
++    );
++    assert!(stdout.contains(BEGIN));
++}
++
++/// E-003 / LLR-004: missing optional context warns but export still succeeds.
++#[test]
++fn export_warns_on_missing_context() {
++    let temp = setup_test_repo();
++    let repo = temp.path();
++    scaffold(repo, "F-001");
++    // Remove an optional context file.
++    fs::remove_file(repo.join("docs/system-overview.md")).unwrap();
++    git_commit_all(repo);
++
++    let (code, stdout, stderr) = run(repo, &["chat", "export", "draft", "F-001"]);
++    assert_eq!(code, 0);
++    assert!(stdout.contains(BEGIN));
++    assert!(
++        stderr.contains("system-overview.md"),
++        "expected warning, stderr: {}",
++        stderr
++    );
++}
++
++/// E-002: export on a missing feature fails fast.
++#[test]
++fn export_missing_feature_fails() {
++    let temp = setup_test_repo();
++    let repo = temp.path();
++    fs::create_dir_all(repo.join("docs")).unwrap();
++    git_commit_all(repo);
++
++    let (code, _stdout, stderr) = run(repo, &["chat", "export", "draft", "F-404"]);
++    assert_eq!(code, 1);
++    assert!(stderr.to_lowercase().contains("not found") || stderr.contains("spec"));
++}
++
++/// TC-009 / E-001 / AC-19: invalid FEATURE_ID rejected before filesystem work.
++#[test]
++fn export_rejects_invalid_feature_id() {
++    let temp = setup_test_repo();
++    let repo = temp.path();
++    scaffold(repo, "F-001");
++    git_commit_all(repo);
++
++    let (code, _stdout, stderr) = run(repo, &["chat", "export", "draft", "../etc"]);
++    assert_eq!(code, 1);
++    assert!(stderr.contains("invalid FEATURE_ID"));
++}
++
++// --- Import ---------------------------------------------------------------
++
++fn draft_response(feature_id: &str, contract_body: &str, notes: Option<&str>) -> String {
++    let mut s = String::new();
++    s.push_str(BEGIN);
++    s.push('\n');
++    s.push_str(NOTES);
++    s.push('\n');
++    if let Some(n) = notes {
++        s.push_str(n);
++        s.push('\n');
++    }
++    s.push_str(&format!(
++        "--- SPECDRIVE:FILE docs/features/{}/contract.yaml ---\n",
++        feature_id
++    ));
++    s.push_str(contract_body);
++    if !contract_body.ends_with('\n') {
++        s.push('\n');
++    }
++    s.push_str(END);
++    s.push('\n');
++    s
++}
++
++/// TC-004 / AC-4: draft import replaces contract.yaml on confirmation; notes saved.
++#[test]
++fn import_draft_replaces_contract_and_saves_notes() {
++    let temp = setup_test_repo();
++    let repo = temp.path();
++    scaffold(repo, "F-001");
++    git_commit_all(repo);
++
++    let new_contract = "schema_version: 1\nmetadata:\n  id: F-001\n  title: Updated\nrequirements:\n  high_level: []\n  low_level: []\n";
++    let response = draft_response("F-001", new_contract, Some("LLR-003 may need revision."));
++    let stdin = format!("{}y\n", response);
++
++    let (code, stdout, stderr) =
++        run_with_stdin(repo, &["chat", "import", "draft", "F-001"], &stdin);
++    assert_eq!(code, 0, "stdout: {} stderr: {}", stdout, stderr);
++    assert!(stdout.contains("Notes from AI:"));
++    assert!(stdout.contains("Files to be written:"));
++
++    let written = fs::read_to_string(repo.join("docs/features/F-001/contract.yaml")).unwrap();
++    assert!(written.contains("title: Updated"));
++
++    // Notes artifact exists.
++    let notes = fs::read_to_string(repo.join("docs/features/F-001/outputs/notes-001.md")).unwrap();
++    assert!(notes.contains("LLR-003 may need revision"));
++}
++
++/// TC-021 / E-013 / AC: declining writes nothing and exits cleanly.
++#[test]
++fn import_decline_writes_nothing() {
++    let temp = setup_test_repo();
++    let repo = temp.path();
++    scaffold(repo, "F-001");
++    git_commit_all(repo);
++
++    let new_contract = "schema_version: 1\nmetadata:\n  id: F-001\n  title: Updated\nrequirements:\n  high_level: []\n  low_level: []\n";
++    let response = draft_response("F-001", new_contract, None);
++    let stdin = format!("{}n\n", response);
++
++    let (code, _stdout, _stderr) =
++        run_with_stdin(repo, &["chat", "import", "draft", "F-001"], &stdin);
++    assert_eq!(code, 0);
++
++    let written = fs::read_to_string(repo.join("docs/features/F-001/contract.yaml")).unwrap();
++    assert!(
++        written.contains("title: Test"),
++        "contract must be unchanged"
++    );
++    assert!(!repo.join("docs/features/F-001/outputs").exists());
++}
++
++/// TC-013 / AC-9: no NOTES block produces no notes artifact.
++#[test]
++fn import_draft_no_notes_no_artifact() {
++    let temp = setup_test_repo();
++    let repo = temp.path();
++    scaffold(repo, "F-001");
++    git_commit_all(repo);
++
++    // Response without any NOTES block at all.
++    let mut response = String::new();
++    response.push_str(BEGIN);
++    response.push('\n');
++    response.push_str("--- SPECDRIVE:FILE docs/features/F-001/contract.yaml ---\n");
++    response.push_str(VALID_CONTRACT);
++    response.push_str(END);
++    response.push('\n');
++    let stdin = format!("{}y\n", response);
++
++    let (code, _stdout, stderr) =
++        run_with_stdin(repo, &["chat", "import", "draft", "F-001"], &stdin);
++    assert_eq!(code, 0, "stderr: {}", stderr);
++    assert!(
++        !repo
++            .join("docs/features/F-001/outputs/notes-001.md")
++            .exists()
++    );
++}
++
++/// TC-005 / AC-5 / AC-15: implement import saves raw to outputs/ only.
++#[test]
++fn import_implement_saves_raw_only() {
++    let temp = setup_test_repo();
++    let repo = temp.path();
++    scaffold(repo, "F-001");
++    git_commit_all(repo);
++
++    let mut response = String::new();
++    response.push_str(BEGIN);
++    response.push('\n');
++    response.push_str("--- SPECDRIVE:FILE docs/features/F-001/spec.md ---\n");
++    response.push_str("UNIQUE_IMPLEMENT_OUTPUT\n");
++    response.push_str(END);
++    response.push('\n');
++    let stdin = format!("{}y\n", response);
++
++    let (code, stdout, stderr) =
++        run_with_stdin(repo, &["chat", "import", "implement", "F-001"], &stdin);
++    assert_eq!(code, 0, "stdout: {} stderr: {}", stdout, stderr);
++
++    let raw =
++        fs::read_to_string(repo.join("docs/features/F-001/outputs/implement-001.raw.md")).unwrap();
++    assert!(raw.contains("UNIQUE_IMPLEMENT_OUTPUT"));
++
++    // Spec must be untouched (implement never modifies source/spec).
++    let spec = fs::read_to_string(repo.join("docs/features/F-001/spec.md")).unwrap();
++    assert!(spec.contains("SPEC_BODY"));
++    assert!(!spec.contains("UNIQUE_IMPLEMENT_OUTPUT"));
++}
++
++/// TC-006 / E-005 / AC-6: missing END delimiter is a hard failure.
++#[test]
++fn import_missing_end_fails() {
++    let temp = setup_test_repo();
++    let repo = temp.path();
++    scaffold(repo, "F-001");
++    git_commit_all(repo);
++
++    let stdin = format!(
++        "{}\n--- SPECDRIVE:FILE docs/features/F-001/contract.yaml ---\n{}",
++        BEGIN, VALID_CONTRACT
++    ); // no END
++
++    let (code, _stdout, stderr) =
++        run_with_stdin(repo, &["chat", "import", "draft", "F-001"], &stdin);
++    assert_eq!(code, 1);
++    assert!(stderr.contains("incomplete paste"), "stderr: {}", stderr);
++}
++
++/// E-006: no FILE blocks is a malformed response.
++#[test]
++fn import_no_file_blocks_fails() {
++    let temp = setup_test_repo();
++    let repo = temp.path();
++    scaffold(repo, "F-001");
++    git_commit_all(repo);
++
++    let stdin = format!("{}\n{}\nsome notes\n{}\n", BEGIN, NOTES, END);
++    let (code, _stdout, stderr) =
++        run_with_stdin(repo, &["chat", "import", "draft", "F-001"], &stdin);
++    assert_eq!(code, 1);
++    assert!(stderr.contains("no SPECDRIVE:FILE"), "stderr: {}", stderr);
++}
++
++/// TC-008 / E-007 / AC-20: absolute FILE paths rejected; nothing written.
++#[test]
++fn import_rejects_absolute_path() {
++    let temp = setup_test_repo();
++    let repo = temp.path();
++    scaffold(repo, "F-001");
++    git_commit_all(repo);
++
++    let mut response = String::new();
++    response.push_str(BEGIN);
++    response.push('\n');
++    response.push_str("--- SPECDRIVE:FILE /etc/passwd ---\n");
++    response.push_str("malicious\n");
++    response.push_str(END);
++    response.push('\n');
++    let stdin = format!("{}y\n", response);
++
++    let (code, _stdout, stderr) =
++        run_with_stdin(repo, &["chat", "import", "implement", "F-001"], &stdin);
++    assert_eq!(code, 1);
++    assert!(stderr.contains("absolute"), "stderr: {}", stderr);
++}
++
++/// TC-007 / E-008 / AC-7: traversal outside the feature directory rejected.
++#[test]
++fn import_rejects_path_traversal() {
++    let temp = setup_test_repo();
++    let repo = temp.path();
++    scaffold(repo, "F-001");
++    git_commit_all(repo);
++
++    let mut response = String::new();
++    response.push_str(BEGIN);
++    response.push('\n');
++    response.push_str("--- SPECDRIVE:FILE docs/features/F-001/../../../etc/passwd ---\n");
++    response.push_str("malicious\n");
++    response.push_str(END);
++    response.push('\n');
++    let stdin = format!("{}y\n", response);
++
++    let (code, _stdout, stderr) =
++        run_with_stdin(repo, &["chat", "import", "implement", "F-001"], &stdin);
++    assert_eq!(code, 1);
++    assert!(
++        stderr.contains("outside") || stderr.contains("traversal"),
++        "stderr: {}",
++        stderr
++    );
++}
++
++/// TC-010 / E-011 / AC-8: draft import rejects YAML lacking required structure.
++#[test]
++fn import_draft_rejects_bad_structure() {
++    let temp = setup_test_repo();
++    let repo = temp.path();
++    scaffold(repo, "F-001");
++    git_commit_all(repo);
++
++    // Valid YAML but missing required top-level sections.
++    let response = draft_response("F-001", "just_a_key: true\n", None);
++    let stdin = format!("{}y\n", response);
++
++    let (code, _stdout, stderr) =
++        run_with_stdin(repo, &["chat", "import", "draft", "F-001"], &stdin);
++    assert_eq!(code, 1);
++    assert!(
++        stderr.contains("metadata") || stderr.contains("requirements"),
++        "stderr: {}",
++        stderr
++    );
++
++    // Contract must be unchanged.
++    let written = fs::read_to_string(repo.join("docs/features/F-001/contract.yaml")).unwrap();
++    assert!(written.contains("title: Test"));
++}
++
++/// TC-018 / E-004 / AC-18: import fails fast on a dirty tree before any write.
++#[test]
++fn import_fails_on_dirty_tree() {
++    let temp = setup_test_repo();
++    let repo = temp.path();
++    scaffold(repo, "F-001");
++    git_commit_all(repo);
++
++    // Dirty a tracked file.
++    fs::write(repo.join("docs/features/F-001/spec.md"), "# Spec\nDIRTY\n").unwrap();
++
++    let new_contract = VALID_CONTRACT;
++    let response = draft_response("F-001", new_contract, None);
++    let stdin = format!("{}y\n", response);
++
++    let (code, _stdout, stderr) =
++        run_with_stdin(repo, &["chat", "import", "draft", "F-001"], &stdin);
++    assert_eq!(code, 1);
++    assert!(stderr.contains("not clean"), "stderr: {}", stderr);
++}
++
++/// TC-011 / AC-23: embedded delimiters in contents do not terminate blocks.
++#[test]
++fn import_embedded_delimiter_not_terminating() {
++    let temp = setup_test_repo();
++    let repo = temp.path();
++    scaffold(repo, "F-001");
++    git_commit_all(repo);
++
++    // Contract content contains an INDENTED END line that must be preserved.
++    let body = "schema_version: 1\nmetadata:\n  id: F-001\n  note: \"  --- SPECDRIVE:END --- embedded\"\nrequirements:\n  high_level: []\n";
++    let response = draft_response("F-001", body, None);
++    let stdin = format!("{}y\n", response);
++
++    let (code, stdout, stderr) =
++        run_with_stdin(repo, &["chat", "import", "draft", "F-001"], &stdin);
++    assert_eq!(code, 0, "stdout: {} stderr: {}", stdout, stderr);
++
++    let written = fs::read_to_string(repo.join("docs/features/F-001/contract.yaml")).unwrap();
++    assert!(
++        written.contains("embedded"),
++        "embedded delimiter content must be preserved: {}",
++        written
++    );
++}
++
++/// AC-11 / TC-020: existing draft/implement commands still behave correctly
++/// after resolver extraction (paths listed, not inlined).
++#[test]
++fn existing_implement_unchanged() {
++    let temp = setup_test_repo();
++    let repo = temp.path();
++    scaffold(repo, "F-001");
++    git_commit_all(repo);
++
++    let (code, stdout, stderr) = run(repo, &["implement", "F-001"]);
++    assert_eq!(code, 0, "stderr: {}", stderr);
++    assert!(stdout.contains("docs/features/F-001/spec.md"));
++    assert!(stdout.contains("docs/features/F-001/contract.yaml"));
++    assert!(stdout.contains("docs/constitution.md"));
++    // implement must NOT inline file contents.
++    assert!(!stdout.contains("SPEC_BODY"));
++}
