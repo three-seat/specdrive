@@ -3,7 +3,8 @@ schema_version: 1
 metadata:
   id: "F-XXX"
   title: "<TITLE>"
-  status: "draft" # draft | in_progress | implemented | deprecated
+  status: "draft"   # draft | in_progress | implemented | deprecated
+  critical: false
 
 summary: |
   TODO: 2-4 lines describing the feature.
@@ -12,44 +13,69 @@ scope:
   product: "specdrive"
   service: "specdrive-cli"
   repo: "specdrive"
-  area: "TODO: cli|spec|contract|git|ai|docs"
+  area: "TODO: choose one of: cli | spec | contract | git | ai | docs"
 
 requirements:
   high_level: []
   low_level: []
 
+architecture:
+  related_docs:
+    - "docs/system-overview.md"
+    - "docs/constitution.md"
+    - "docs/adrs/ADR-0003-artifact-ownership-and-traceability.md"
+  constraints:
+    - "No secrets written to disk."
+    - "No network calls unless explicitly required."
+    - "All SpecDrive state remains repository-local and reconstructable."
+
 # Exactly one of these should be used for most features in this repo.
 cli:
-  command: ""          # e.g. "new-feature"
-  args: []             # e.g. ["<FEATURE_ID>"]
-  flags: []            # e.g. ["--critical"]
+  command: ""         # e.g. "new-feature"
+  args: []            # e.g. ["<FEATURE_ID>"]
+  flags: []           # e.g. ["--critical"]
   description: ""
+  exit_codes:
+    - code: 0
+      meaning: "Success."
+    - code: 1
+      meaning: "Usage or precondition failure."
+    - code: 2
+      meaning: "Underlying tool or IO failure."
 
 behavior:
-  steps: []            # ordered list of what happens
+  steps: []           # ordered list of what happens
 
 logic:
-  invariants: []       # "must always be true"
-  error_conditions: [] # structured-ish descriptions of failures
+  invariants: []      # "must always be true"
+  error_conditions: [] # structured descriptions of failures
 
 filesystem:
   creates_paths: []
   reads_paths: []
-  copies_templates:
-    - from: ""
-      to: ""
+  copies_templates: []
   must_not_modify: []
 
 git_safety:
   require_clean_tree: false
   allow_untracked: true
+  rationale: "TODO: justify git safety settings for this command."
 
 verification:
   strategy: ["unit"]
-  test_cases: []       # list of 1–3 concrete tests to implement
+  test_cases: []      # list of 1-3 concrete tests to implement
+
+reviews:
+  required: false
+  checklist: []
+  status:
+    reviewed_by: ""
+    reviewed_at: ""
 
 ai_instructions:
   - "Treat this contract as the source of truth for implementing the feature."
   - "Do not modify this file unless explicitly instructed."
+  - "Do not advance lifecycle state unless explicitly specified in this contract."
   - "Prefer small, composable functions and clear error messages."
   - "Avoid adding dependencies unless the contract explicitly allows it."
+  - "If anything is ambiguous, implement the safest conservative behavior."
