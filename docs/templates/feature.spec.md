@@ -4,7 +4,7 @@ title: <title>
 type: feature        # feature | refactor | bugfix | chore
 system: specdrive
 status: draft
-area: <choose one of: cli | spec | contract | git | ai | docs>
+area: cli | spec | contract | git | ai | docs
 owners:
   - <you>
 created_at: <YYYY-MM-DD>
