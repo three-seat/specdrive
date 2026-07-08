@@ -51,10 +51,11 @@ logic:
   error_conditions: [] # structured descriptions of failures
 
 filesystem:
-  creates_paths: []
-  reads_paths: []
+  creates_paths: []      # new files this command creates
+  reads_paths: []        # existing files this command reads but does not change
+  modifies_paths: []     # existing files this command edits (path + reason)
   copies_templates: []
-  must_not_modify: []
+  must_not_modify: []    # files this command must never touch
 
 git_safety:
   require_clean_tree: false
@@ -78,4 +79,5 @@ ai_instructions:
   - "Do not advance lifecycle state unless explicitly specified in this contract."
   - "Prefer small, composable functions and clear error messages."
   - "Avoid adding dependencies unless the contract explicitly allows it."
+  - "Every modifies_paths entry must include a justified reason."
   - "If anything is ambiguous, implement the safest conservative behavior."

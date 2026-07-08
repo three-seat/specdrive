@@ -74,10 +74,11 @@ logic:
   error_conditions: []
 
 filesystem:
-  creates_paths: []
-  reads_paths: []
+  creates_paths: []      # new files this command creates
+  reads_paths: []        # existing files this command reads but does not change
+  modifies_paths: []     # existing files this command edits (path + reason)
   copies_templates: []
-  must_not_modify: []
+  must_not_modify: []    # files this command must never touch
 
 integrations:
   tools:
@@ -105,6 +106,7 @@ reviews:
     - "No new crate dependencies unless explicitly approved."
     - "Lifecycle state is not advanced unless explicitly specified."
     - "Feature does not modify canonical artifacts outside its stated scope."
+    - "Every modifies_paths entry has a justified reason."
   status:
     reviewed_by: ""
     reviewed_at: ""
@@ -116,4 +118,5 @@ ai_instructions:
   - "Do not add dependencies unless explicitly allowed in this contract."
   - "Do not advance lifecycle state unless explicitly specified in this contract."
   - "Do not modify specs, constitution, ADRs, or templates."
+  - "Every modifies_paths entry must include a justified reason."
   - "If anything is ambiguous, implement the safest conservative behavior and reject rather than write."
