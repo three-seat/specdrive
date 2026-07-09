@@ -1,4 +1,19 @@
 # Changelog
+
+## [0.5.0] - 2026-07-08
+
+### Added
+
+- Lifecycle state enforcement (F-010)
+- Append-only `state.yaml` lifecycle log
+- Lifecycle validation and transition rules
+- Foundation for future review, traceability, and workflow automation
+
+### Changed
+
+- Feature lifecycle is now enforced rather than purely documented.
+
+
 ## v0.4.0 — Chat Export/Import Workflow
 
 - Added `specdrive chat export` and `specdrive chat import` subcommands bridging SpecDrive's artifact model with stateless AI chat tools
