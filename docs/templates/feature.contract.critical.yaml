@@ -107,9 +107,8 @@ reviews:
     - "Lifecycle state is not advanced unless explicitly specified."
     - "Feature does not modify canonical artifacts outside its stated scope."
     - "Every modifies_paths entry has a justified reason."
-  status:
-    reviewed_by: ""
-    reviewed_at: ""
+  # Review records are stored in state.yaml, not in this contract.
+  # See F-010. state.yaml is authoritative for all review records.
 
 ai_instructions:
   - "Treat this contract as the source of truth."
