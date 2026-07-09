@@ -1,4 +1,3 @@
-```markdown
 ---
 id: F-010
 title: Lifecycle State Enforcement
@@ -632,18 +631,3 @@ is deferred to F-012.
 - Q8 (closed): Automatic inference. F-009 import triggering
   contract state is detected automatically on next status check.
   No manual advancement required. No event written to state.yaml.
-```
-
-**What Changed From Previous Version**
-- Inferred states never persisted — stated explicitly in context, inference behavior, state.yaml rules, and AC-18
-- state.yaml schema example cleaned — no draft, contract, or patch inferred entries
-- state.yaml rules section — removed inferred: true bullet, added explicit "only explicit command events are written"
-- Status examples updated — inferred features show -- for since and actor
-- F-009 handoff note updated — explicitly states no event written to state.yaml
-- Auditability NFR updated — notes only explicit human command events are recorded
-- Follow-up Work section added — ADR-0004 after F-010 ships
-- Q2 updated to include inferred states never persisted
-- Q8 updated to include no event written to state.yaml
-- AC-18 added covering inferred states never written
-
-Ready to send to the OpenAI chat for final review.
