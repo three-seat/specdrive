@@ -41,14 +41,15 @@ SpecDrive addresses this by:
 
 ## Current State
 
-As of v0.3.x, SpecDrive focuses on:
+As of v0.5.0, SpecDrive focuses on:
 
 - Feature-local specs and contracts
 - Patch generation and emission
-- Reviewable artifacts
-- Spec-first workflows
+- Chat export/import for stateless AI tools
+- Lifecycle state enforcement with an append-only event log
+- Reviewable, auditable artifacts
 
-Many traceability, lifecycle enforcement, and audit capabilities described in the roadmap are planned but not yet implemented.
+Many traceability, manifest, and validation capabilities described in the roadmap are planned but not yet implemented.
 
 ---
 
@@ -66,10 +67,12 @@ This keeps changes small, explicit, and auditable — whether code is written by
 ## Feature lifecycle (high level)
 
 ```
-draft → contract → implement → patch → review → done
+draft → contract → patch → review → done
 ```
 
-SpecDrive enforces what artifacts must exist at each stage. Features may also enter `blocked` or `deferred` states when dependencies are unresolved.
+SpecDrive enforces what artifacts must exist at each stage. Early states (draft, contract, patch) are inferred from artifact presence; review and done are explicit human gates. Features may also be overlaid as `blocked` or `deferred` and resolved via unblock/resume. Lifecycle records live in a per-feature `state.yaml`.
+
+Note: the constitution defines a six-state lifecycle including `implement`. That state is reserved until F-014 introduces prompt persistence; the enforced lifecycle is currently five states. See ADR-0004 for the lifecycle state model.
 
 ---
 
@@ -95,6 +98,8 @@ One area of interest is understanding how SpecDrive's artifact model (specs, con
 
 This is an exploratory effort only. SpecDrive is not a compliance tool, has not been qualified for use in regulated environments, and makes no claims of compliance with DO-178C or any other standard.
 
+See ADR-0003 (artifact ownership and traceability) and ADR-0004 (lifecycle state model) for the architectural decisions behind this direction.
+
 ---
 
 ## Commands
@@ -117,13 +122,9 @@ Generate a structured contract-authoring prompt for a feature.
 specdrive draft F-005
 ```
 
-Produces a prompt that instructs an AI to read the feature spec, 
-constitution, ADRs, system overview, and contract templates, then 
-draft or refine the feature contract. The prompt includes explicit 
-mapping guidance and guardrails.
+Produces a prompt that instructs an AI to read the feature spec, constitution, ADRs, system overview, and contract templates, then draft or refine the feature contract. The prompt includes explicit mapping guidance and guardrails.
 
-The resulting prompt is intended for use with an external AI chat tool. 
-The contract is reviewed and committed before implementation begins.
+The resulting prompt is intended for use with an external AI chat tool. The contract is reviewed and committed before implementation begins.
 
 ---
 
@@ -157,11 +158,78 @@ The patch is generated from the current git diff and can be independently review
 
 ---
 
+### `specdrive chat export`
+
+Assemble a self-contained context bundle for use with stateless AI chat tools.
+
+```bash
+specdrive chat export draft F-005
+specdrive chat export implement F-005
+```
+
+Prints a delimited bundle to stdout with all relevant artifacts inlined. Copy and paste into any AI chat tool. Read-only — no clipboard, no API, works anywhere.
+
+---
+
+### `specdrive chat import`
+
+Read a delimited AI response from stdin, preview changes, and write artifacts on confirmation.
+
+```bash
+specdrive chat import draft F-005
+specdrive chat import implement F-005
+```
+
+Validates paths, enforces configurable size limits, and performs an all-or-nothing dry run before writing. Import requires a clean working tree. Draft import replaces `contract.yaml` after validation; implement import saves raw output to `outputs/` only.
+
+---
+
+### `specdrive status`
+
+Show the lifecycle state of one or all features.
+
+```bash
+specdrive status F-005
+specdrive status --all
+```
+
+Read-only. State is inferred from artifact presence (draft, contract, patch) or read from recorded events (review, done, blocked, deferred).
+
+---
+
+### `specdrive review` / `specdrive done`
+
+Explicit human gates advancing a feature through the lifecycle.
+
+```bash
+specdrive review F-005
+specdrive done F-005
+```
+
+`review` is valid from patch state; `done` is valid from review state. Both stamp an event to `state.yaml`.
+
+---
+
+### `specdrive block` / `defer` / `unblock` / `resume`
+
+Overlay a feature as blocked or deferred, then resolve it.
+
+```bash
+specdrive block F-005 --reason "waiting on F-012"
+specdrive defer F-005 --reason "postponed to next cycle"
+specdrive unblock F-005
+specdrive resume F-005
+```
+
+Block and defer require `--reason` and record the previous base state. Unblock and resume resolve the overlay, returning the feature to its previous state.
+
+---
+
 ## Configuration
 
 SpecDrive is configured via a file (introduced in `v0.1.0`).
 
-Configuration schema is stabilizing pre-1.0. Refer to the repository for current configuration options.
+Configuration schema is stabilizing pre-1.0. The `chat.import` namespace controls import size limits (file block count, file size, total response size) with built-in defaults. Refer to the repository for current configuration options.
 
 ---
 
@@ -169,7 +237,7 @@ Configuration schema is stabilizing pre-1.0. Refer to the repository for current
 
 SpecDrive is designed to work with AI systems but does not require them.
 
-Current workflows are human-driven and artifact-driven. The spec and contract authoring phases work naturally with external AI chat tools — the contract acts as an execution plan that can be handed directly to an AI for implementation.
+Current workflows are human-driven and artifact-driven. The `chat export` and `chat import` commands bridge SpecDrive's artifact model with stateless AI chat tools — the contract acts as an execution plan that can be handed directly to an AI for implementation, and the response imported back with validation.
 
 Future releases will add optional adapter interfaces for invoking external AI systems directly. See F-011 in the roadmap.
 
@@ -186,7 +254,7 @@ Future releases will add optional adapter interfaces for invoking external AI sy
 
 ## Status
 
-- **Pre-1.0**
+- **Pre-1.0** (v0.5.0)
 - CLI and config format may change
 - Lifecycle model is stabilizing
 - Designed for real-world use with interrupted time and fatigue
@@ -195,17 +263,11 @@ Future releases will add optional adapter interfaces for invoking external AI sy
 
 ## Roadmap
 
+### Recently shipped
+- F-009: Chat export/import workflow ✓
+- F-010: Lifecycle state enforcement ✓
+
 ### Near-term
-- F-009: Chat export/import workflow
-  - Structured prompt export for stateless AI chat tools
-  - Clipboard-based import of AI responses back into SpecDrive
-  - Supports Claude, ChatGPT, Copilot Chat, and similar interfaces
-
-- F-010: Lifecycle state enforcement
-  - Formalize draft → contract → implement → patch → review → done
-  - Include blocked and deferred states for dependency-driven workflows
-  - Enforce required artifacts before advancing lifecycle state
-
 - F-011: AI adapter interface
   - Define clean boundary for optional AI execution via stdin/stdout
   - Maintain human-in-the-loop and explicit execution model
@@ -226,6 +288,7 @@ Future releases will add optional adapter interfaces for invoking external AI sy
   - Persist prompts as first-class artifacts on disk
   - Hash prompts and link to outputs and patches for full chain of custody
   - Build traceable chain: spec → contract → prompt → output → patch
+  - Restores `implement` lifecycle state via prompt persistence
 
 - F-015: Repository baseline tracking
   - Record git commit, branch, and dirty-tree state for generated artifacts
@@ -257,16 +320,6 @@ Future releases will add optional adapter interfaces for invoking external AI sy
   - Consume artifact manifest rather than walking filesystem
   - Produce reviewable release artifacts across all features
 
-- F-021: Feature status command
-  - Show all features and current lifecycle state at a glance
-  - Surface missing artifacts, blocked transitions, and unresolved dependencies
-  - Driven by artifact manifest for consistency
-
-- F-022: Review command and review artifact stamping
-  - Explicit specdrive review command for human approval gate
-  - Stamp reviewed_by and reviewed_at into contract on execution
-  - Required for critical features before lifecycle advances to done
-
 ### Long-term
 - Test execution recording and verification evidence
   - Record test outcomes against contract-defined test cases
@@ -295,12 +348,13 @@ Future releases will add optional adapter interfaces for invoking external AI sy
   - Explicit execution boundaries between planning and implementation agents
 
 - Intent graph commands (specdrive explain, specdrive history)
-  - specdrive explain <behavior>: why a behavior exists, traced from 
+  - specdrive explain <behavior>: why a behavior exists, traced from
     spec through contract, patch, and verification
-  - specdrive history <feature or behavior>: which product intentions 
+  - specdrive history <feature or behavior>: which product intentions
     shaped this code over time
   - Requires complete artifact manifest and lineage chain
   - Answers provenance of intent, not just provenance of code
+
 ---
 
 ## Who is this for?
