@@ -10,8 +10,10 @@ mod feature_spec;
 mod fsutil;
 mod git;
 mod implement;
+mod lifecycle;
 mod patch;
 mod resolve;
+mod status;
 mod utils;
 
 fn main() {
@@ -33,6 +35,9 @@ fn main() {
             patch_err.exit_code()
         } else if let Some(chat_err) = err.downcast_ref::<chat::ChatError>() {
             chat_err.exit_code()
+        } else if let Some(lifecycle_err) = err.downcast_ref::<lifecycle::LifecycleError>() {
+            // Per F-010 contract: lifecycle commands use exit codes 0, 1, or 2
+            lifecycle_err.exit_code()
         } else {
             1 // Default exit code for all other errors
         };

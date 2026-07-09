@@ -4,7 +4,9 @@ use crate::chat;
 use crate::draft;
 use crate::feature;
 use crate::implement;
+use crate::lifecycle;
 use crate::patch;
+use crate::status;
 
 pub fn run() -> Result<()> {
     let mut args = std::env::args().skip(1);
@@ -72,6 +74,25 @@ pub fn run() -> Result<()> {
             };
             chat::run(&action, &workflow, &feature_id)
         }
+        // --- F-010 lifecycle commands ---
+        "status" => {
+            // status <FEATURE_ID> | status --all
+            let rest: Vec<String> = args.collect();
+            if rest.iter().any(|a| a == "--all") {
+                status::run_all()
+            } else {
+                match first_positional(&rest) {
+                    Some(feature_id) => status::run_one(feature_id),
+                    None => Err("status requires <FEATURE_ID> or --all".into()),
+                }
+            }
+        }
+        "review" => single_feature_command(args, "review", lifecycle::commands::review),
+        "done" => single_feature_command(args, "done", lifecycle::commands::done),
+        "unblock" => single_feature_command(args, "unblock", lifecycle::commands::unblock),
+        "resume" => single_feature_command(args, "resume", lifecycle::commands::resume),
+        "block" => reason_feature_command(args, "block", lifecycle::commands::block),
+        "defer" => reason_feature_command(args, "defer", lifecycle::commands::defer),
         "help" | "-h" | "--help" => {
             print_usage();
             Ok(())
@@ -81,6 +102,55 @@ pub fn run() -> Result<()> {
             Ok(())
         }
     }
+}
+
+/// Returns the first argument that is not an option flag (does not start with
+/// `--`).
+fn first_positional(args: &[String]) -> Option<&str> {
+    args.iter()
+        .find(|a| !a.starts_with("--"))
+        .map(|s| s.as_str())
+}
+
+/// Parses `--reason <value>` or `--reason=<value>` from the arguments.
+fn parse_reason(args: &[String]) -> Option<String> {
+    let mut it = args.iter();
+    while let Some(arg) = it.next() {
+        if arg == "--reason" {
+            return it.next().cloned();
+        }
+        if let Some(rest) = arg.strip_prefix("--reason=") {
+            return Some(rest.to_string());
+        }
+    }
+    None
+}
+
+/// Dispatches a lifecycle command that takes a single `<FEATURE_ID>`.
+fn single_feature_command(
+    args: impl Iterator<Item = String>,
+    command: &str,
+    run: fn(&str) -> Result<()>,
+) -> Result<()> {
+    let rest: Vec<String> = args.collect();
+    match first_positional(&rest) {
+        Some(feature_id) => run(feature_id),
+        None => Err(format!("{command} requires <FEATURE_ID>").into()),
+    }
+}
+
+/// Dispatches a lifecycle command that takes `<FEATURE_ID> --reason "<reason>"`.
+fn reason_feature_command(
+    args: impl Iterator<Item = String>,
+    command: &str,
+    run: fn(&str, Option<&str>) -> Result<()>,
+) -> Result<()> {
+    let rest: Vec<String> = args.collect();
+    let Some(feature_id) = first_positional(&rest) else {
+        return Err(format!("{command} requires <FEATURE_ID>").into());
+    };
+    let reason = parse_reason(&rest);
+    run(feature_id, reason.as_deref())
 }
 
 fn print_usage() {
@@ -94,5 +164,13 @@ fn print_usage() {
     eprintln!("  specdrive patch emit <FEATURE_ID>");
     eprintln!("  specdrive chat export <draft|implement> <FEATURE_ID>");
     eprintln!("  specdrive chat import <draft|implement> <FEATURE_ID>");
+    eprintln!("  specdrive status <FEATURE_ID>");
+    eprintln!("  specdrive status --all");
+    eprintln!("  specdrive review <FEATURE_ID>");
+    eprintln!("  specdrive done <FEATURE_ID>");
+    eprintln!("  specdrive block <FEATURE_ID> --reason \"<reason>\"");
+    eprintln!("  specdrive defer <FEATURE_ID> --reason \"<reason>\"");
+    eprintln!("  specdrive unblock <FEATURE_ID>");
+    eprintln!("  specdrive resume <FEATURE_ID>");
     eprintln!("  specdrive help");
 }

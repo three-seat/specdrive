@@ -1,0 +1,531 @@
+schema_version: 1
+
+metadata:
+  id: "F-010-lifecycle-state"
+  title: "Lifecycle State Enforcement"
+  status: "draft"
+  critical: true
+
+summary: |
+  Formalize and enforce the SpecDrive feature lifecycle via a per-feature,
+  append-only state.yaml sidecar. Early base states (draft, contract, patch)
+  are inferred read-only from artifact presence; review, done, block, defer,
+  unblock, and resume are explicit human-gated commands that append events.
+  Critical because it owns lifecycle advancement gates (Constitution VI,
+  ADR-0003) and the audit trail foundation for future traceability.
+
+scope:
+  product: "specdrive"
+  service: "specdrive-cli"
+  repo: "specdrive"
+  area: "cli"
+
+requirements:
+  high_level:
+    - id: "HLR-001"
+      text: >
+        Provide a strictly read-only `status` command that displays a
+        feature's lifecycle state (overlay if active, otherwise base),
+        whether that state is inferred or recorded, last explicit event
+        metadata, and any blocked/deferred reason, for a single feature or
+        all features via --all.
+    - id: "HLR-002"
+      text: >
+        Compute lifecycle state as two independent layers: a base state
+        (draft < contract < patch < review < done) and an orthogonal
+        overlay (blocked | deferred). Displayed state is the overlay if
+        one is unresolved, otherwise the base state.
+    - id: "HLR-003"
+      text: >
+        Infer base states draft, contract, and patch from artifact presence
+        only, with no content validation. Review, done, blocked, deferred,
+        and implement are never inferred.
+    - id: "HLR-004"
+      text: >
+        Provide explicit, human-gated lifecycle commands (review, done,
+        block, defer, unblock, resume) that append events to state.yaml
+        only when their preconditions hold, and reject with clear messages
+        otherwise.
+    - id: "HLR-005"
+      text: >
+        Maintain docs/features/<FEATURE_ID>/state.yaml as an append-only
+        event log containing only explicit human command events. Inferred
+        states are never persisted; existing events are never modified or
+        deleted.
+    - id: "HLR-006"
+      text: >
+        Resolve an informational actor identity for each recorded event
+        from git config user.name, then user.email, then system username,
+        then "unknown", with no security or authentication meaning.
+    - id: "HLR-007"
+      text: >
+        Make state.yaml authoritative for review records: remove the
+        reviews.status block from the critical contract template and treat
+        contract review fields as ignored by all SpecDrive tooling.
+    - id: "HLR-008"
+      text: >
+        Preserve SpecDrive safety and portability guarantees: operate on
+        repository-local files only, add no new crates, never modify
+        canonical artifacts outside stated scope, and keep the state model
+        forward-compatible with future parent/sub-contract decomposition
+        (F-012).
+  low_level:
+    - id: "LLR-001"
+      parent: "HLR-001"
+      text: >
+        `specdrive status <FEATURE_ID>` prints displayed state, the base
+        state when an overlay is active, source (inferred | recorded), the
+        last explicit event timestamp and actor when available, and the
+        blocked/deferred reason when applicable. (AC-1)
+    - id: "LLR-002"
+      parent: "HLR-001"
+      text: >
+        `specdrive status --all` prints one line per feature in the project
+        with its displayed state, source, and last explicit event metadata.
+        (AC-2)
+    - id: "LLR-003"
+      parent: "HLR-001"
+      text: >
+        `status` never writes to state.yaml or any other file under any
+        circumstances; inference is stateless and read-only. (AC-3)
+    - id: "LLR-004"
+      parent: "HLR-002"
+      text: >
+        Base state is computed as max(last recorded non-overlay event
+        status, current inferred state) under the ordering
+        draft < contract < patch < review < done. (AC-12)
+    - id: "LLR-005"
+      parent: "HLR-002"
+      text: >
+        Overlay state is the last unresolved blocked or deferred event,
+        computed independently of base state; displayed state is the
+        overlay if present, otherwise the base state. (AC-13)
+    - id: "LLR-006"
+      parent: "HLR-003"
+      text: >
+        Inference rules use artifact presence only: draft when the feature
+        directory and spec.md exist; contract when contract.yaml exists and
+        is non-empty; patch when at least one file exists under patches/.
+        No content validation occurs at inference time. (AC-11)
+    - id: "LLR-007"
+      parent: "HLR-003"
+      text: >
+        Blocked, deferred, review, and done are never inferred; implement
+        state does not appear in V1 inference or commands (reserved for
+        F-014). (AC-14, AC-15, AC-16)
+    - id: "LLR-008"
+      parent: "HLR-003"
+      text: >
+        The F-009 handoff (chat import replacing contract.yaml) is reflected
+        automatically on the next status call via inference, with no event
+        written to state.yaml. (Spec Q8)
+    - id: "LLR-009"
+      parent: "HLR-004"
+      text: >
+        `specdrive review <FEATURE_ID>` appends a review event and advances
+        base state to review only when base state is patch, a patch artifact
+        exists, and no overlay is unresolved; otherwise it rejects with a
+        clear message. (AC-4, AC-27)
+    - id: "LLR-010"
+      parent: "HLR-004"
+      text: >
+        `specdrive done <FEATURE_ID>` appends a done event and advances base
+        state to done only when base state is review, a review event exists
+        in state.yaml, a patch artifact exists, and no overlay is unresolved;
+        otherwise it rejects with a clear message. (AC-5, AC-27)
+    - id: "LLR-011"
+      parent: "HLR-004"
+      text: >
+        `specdrive block <FEATURE_ID> --reason "<reason>"` appends a blocked
+        event recording reason and previous_status; it rejects when --reason
+        is missing, when base state is done, or when an overlay is already
+        active. (AC-6, AC-10)
+    - id: "LLR-012"
+      parent: "HLR-004"
+      text: >
+        `specdrive defer <FEATURE_ID> --reason "<reason>"` appends a deferred
+        event recording reason and previous_status; it rejects when --reason
+        is missing, when base state is done, or when an overlay is already
+        active. (AC-7, AC-10)
+    - id: "LLR-013"
+      parent: "HLR-004"
+      text: >
+        `specdrive unblock <FEATURE_ID>` appends an event with via: unblock,
+        resolving the overlay and returning to the previous base state; it
+        rejects when the feature is not blocked or when no previous base
+        state was recorded. (AC-8, AC-26)
+    - id: "LLR-014"
+      parent: "HLR-004"
+      text: >
+        `specdrive resume <FEATURE_ID>` appends an event with via: resume,
+        resolving the overlay and returning to the previous base state; it
+        rejects when the feature is not deferred or when no previous base
+        state was recorded. (AC-9, AC-26)
+    - id: "LLR-015"
+      parent: "HLR-005"
+      text: >
+        Every write reads the existing event log then appends; no existing
+        event is ever modified or deleted by any command or process.
+        Corrections are made by appending new events. (AC-17)
+    - id: "LLR-016"
+      parent: "HLR-005"
+      text: >
+        Only explicit human command events are written to state.yaml;
+        inferred states are never persisted. (AC-18)
+    - id: "LLR-017"
+      parent: "HLR-005"
+      text: >
+        Blocked and deferred events record previous_status for use by
+        unblock and resume. (AC-19)
+    - id: "LLR-018"
+      parent: "HLR-005"
+      text: >
+        state.yaml is created on the first explicit command for a feature
+        if it does not already exist. (AC-20)
+    - id: "LLR-019"
+      parent: "HLR-005"
+      text: >
+        Event timestamps are recorded in UTC ISO 8601 format from the
+        system clock.
+    - id: "LLR-020"
+      parent: "HLR-006"
+      text: >
+        Actor is resolved in priority order git config user.name, then
+        user.email, then system username, then "unknown", and is documented
+        as informational only with no security meaning. (AC-21)
+    - id: "LLR-021"
+      parent: "HLR-007"
+      text: >
+        The reviews.status block is removed from
+        docs/templates/feature.contract.critical.yaml and replaced with a
+        comment stating that review records live in state.yaml (F-010),
+        which is authoritative. The review checklist is retained. (AC-22)
+    - id: "LLR-022"
+      parent: "HLR-007"
+      text: >
+        When both a contract reviews.status block and a state.yaml review
+        event exist, state.yaml wins; contract review fields are ignored by
+        all SpecDrive tooling going forward. (AC-24)
+    - id: "LLR-023"
+      parent: "HLR-008"
+      text: >
+        Features without a state.yaml (F-001 through F-008) have state
+        inferred from artifact presence without error; no state.yaml is
+        created by status, and no migration command is provided in V1.
+        (AC-23)
+    - id: "LLR-024"
+      parent: "HLR-008"
+      text: >
+        The state.yaml schema and inference rules must not assume a single
+        contract per feature, leaving room for future parent/sub-contract
+        lifecycle tracking (F-012). (AC-25)
+    - id: "LLR-025"
+      parent: "HLR-008"
+      text: >
+        Implementation adds no new crates (uses already-present serde_yaml
+        and chrono), makes no network calls, and keeps all state
+        repository-local and reconstructable.
+
+assumptions:
+  - id: "A-001"
+    text: "The command is run from the repository root and .git/ is present."
+  - id: "A-002"
+    text: >
+      Repo layout follows the post-ADR-0002 / F-007 conventions: feature
+      artifacts under docs/features/<FEATURE_ID>/, templates under
+      docs/templates/. Spec Kit / .specify/ is not required.
+  - id: "A-003"
+    text: >
+      serde_yaml and chrono are already present dependencies; no new crates
+      are introduced by this feature.
+  - id: "A-004"
+    text: >
+      F-014 (prompt saving) has not shipped, so no saved implement-state
+      artifact exists; implement state is out of scope for V1 inference and
+      commands.
+  - id: "A-005"
+    text: >
+      F-012 (feature decomposition) has not shipped, so features currently
+      have a single contract, but the state model must not preclude future
+      multi-contract lifecycle tracking.
+
+preconditions:
+  - id: "P-001"
+    text: "Command is run from the repository root inside a git repository."
+  - id: "P-002"
+    text: >
+      For commands targeting a feature, FEATURE_ID is a non-empty string and
+      the feature directory docs/features/<FEATURE_ID>/ exists; otherwise the
+      command fails fast with a usage/precondition error.
+  - id: "P-003"
+    text: >
+      review requires base state patch, an existing patch artifact, and no
+      unresolved overlay; done requires base state review, an existing review
+      event, an existing patch artifact, and no unresolved overlay; these are
+      actively checked and enforced.
+  - id: "P-004"
+    text: >
+      block and defer require a non-empty --reason and reject when base state
+      is done or when an overlay is already active; unblock requires an active
+      blocked overlay and resume requires an active deferred overlay, each
+      with a recorded previous_status.
+
+impact:
+  security:
+    confidentiality: "low"
+    integrity: "medium"
+    rationale: >
+      Incorrect lifecycle enforcement could allow a feature to reach done
+      without a recorded review, or misreport state, undermining the
+      advancement gate and audit trail. Impact is bounded: all records are
+      repository-local, append-only, human-reviewed, and fully reversible via
+      git, and actor identity is informational only and not a security
+      control.
+    availability: "low"
+  privacy:
+    pii_involved: false
+    rationale: >
+      Recorded actor identity (git user.name/user.email or system username)
+      is the same identity already present in git history, captured only as
+      an informational label. No additional personal data is collected.
+
+architecture:
+  related_docs:
+    - "docs/system-overview.md"
+    - "docs/constitution.md"
+    - "docs/adrs/ADR-0003-artifact-ownership-and-traceability.md"
+    - "docs/features/F-010-lifecycle-state/spec.md"
+  constraints:
+    - "No secrets written to disk."
+    - "No network calls; SpecDrive operates on local files only."
+    - "All SpecDrive state remains repository-local and reconstructable."
+    - "AI produces artifacts only; SpecDrive owns lifecycle state and advancement gates (Constitution VI, ADR-0003)."
+    - "No new crate dependencies; reuse existing serde_yaml and chrono."
+    - "state.yaml is the canonical review record; contract review fields are ignored."
+
+cli:
+  command: "specdrive <subcommand> <FEATURE_ID>"
+  args: ["<FEATURE_ID>"]
+  flags: ["--all", "--reason <reason>"]
+  description: >
+    Lifecycle commands introduced by F-010. `status <FEATURE_ID>` (or
+    `status --all`) is strictly read-only and reports displayed/base state,
+    source, last event, and reason. `review <FEATURE_ID>` and
+    `done <FEATURE_ID>` advance base state via explicit human gates.
+    `block <FEATURE_ID> --reason` and `defer <FEATURE_ID> --reason` apply an
+    overlay recording previous_status. `unblock <FEATURE_ID>` and
+    `resume <FEATURE_ID>` resolve the overlay, returning to the previous base
+    state. All mutating commands append events to
+    docs/features/<FEATURE_ID>/state.yaml only.
+  exit_codes:
+    - code: 0
+      meaning: "Success."
+    - code: 1
+      meaning: >
+        Usage or precondition failure (missing/invalid FEATURE_ID, missing
+        --reason, wrong base state, unresolved overlay, missing required
+        artifact or review event, feature not blocked/deferred)."
+    - code: 2
+      meaning: "Underlying tool or IO failure (git, filesystem, YAML parse/serialize)."
+
+behavior:
+  steps:
+    - "Resolve repository readiness (in a git repo; per-command git_safety) via the shared defensive helper."
+    - "Validate the subcommand and, for feature-targeted commands, that FEATURE_ID is non-empty and its feature directory exists."
+    - "Read docs/features/<FEATURE_ID>/state.yaml if present; otherwise treat the event log as empty."
+    - "Infer the current base state from artifact presence only: draft (dir + spec.md), contract (non-empty contract.yaml), patch (>=1 file under patches/)."
+    - "Compute base state = max(last recorded non-overlay event status, inferred state); compute overlay = last unresolved blocked/deferred event; displayed = overlay ?? base."
+    - "status: print displayed state, base when overlay active, source (inferred|recorded), last explicit event timestamp/actor, and reason if applicable; write nothing."
+    - "status --all: repeat inference/display for every feature under docs/features/ and print one line each."
+    - "review: verify base is patch, a patch artifact exists, and no overlay is unresolved; resolve actor and UTC timestamp; append a review event; report advancement to review."
+    - "done: verify base is review, a review event exists, a patch artifact exists, and no overlay is unresolved; append a done event; report advancement to done."
+    - "block/defer: verify --reason present, base is not done, and no overlay active; append a blocked/deferred event recording reason and previous_status; report the overlay."
+    - "unblock/resume: verify the matching active overlay and a recorded previous_status; append an event with via: unblock|resume; report the base state revealed underneath."
+    - "For any mutating command, create state.yaml on first write if absent, then append (never overwrite or reorder existing events) and serialize back to disk."
+    - "On any precondition failure, reject with a clear message and a non-zero exit code, writing nothing."
+
+logic:
+  invariants:
+    - "state.yaml is append-only: no existing event is ever modified, reordered, or deleted by any command or process."
+    - "Inferred states are never written to state.yaml; only explicit human command events are persisted."
+    - "status is strictly read-only and never writes to disk under any circumstances."
+    - "Inference uses artifact presence only, performs no content validation, and is deterministic and stateless."
+    - "Base state = max(last recorded non-overlay event, inferred state); overlay state is computed independently; displayed = overlay if unresolved, otherwise base."
+    - "review, done, blocked, and deferred are never inferred; implement state does not appear in V1."
+    - "At most one overlay (blocked or deferred) is active at a time; block/defer reject when an overlay is already active."
+    - "block and defer record previous_status; unblock and resume record a via field and never change the base state."
+    - "A mutating command only ever appends to the targeted feature's own state.yaml and never modifies spec, contract, patches, other features, templates (except the one permitted removal), the constitution, or ADRs."
+    - "Actor identity is informational only, carries no security meaning, and is not treated as authentication or independent verification."
+    - "No network calls are made and no new crate dependencies are introduced."
+  error_conditions:
+    - id: "E-001"
+      text: "FEATURE_ID missing/empty or feature directory absent — reject with usage error (exit 1)."
+    - id: "E-002"
+      text: "review invoked when base state is not patch, no patch artifact exists, or an overlay is unresolved — reject (exit 1)."
+    - id: "E-003"
+      text: "done invoked when base state is not review, no review event exists, no patch artifact exists, or an overlay is unresolved — reject (exit 1)."
+    - id: "E-004"
+      text: "block or defer invoked without --reason, when base state is done, or when an overlay is already active — reject (exit 1)."
+    - id: "E-005"
+      text: "unblock invoked when the feature is not blocked, or resume when not deferred, or when no previous_status was recorded — reject (exit 1)."
+    - id: "E-006"
+      text: "state.yaml exists but cannot be parsed as the expected append-only event log schema — reject without writing (exit 2)."
+    - id: "E-007"
+      text: "Filesystem or git failure while reading artifacts or writing state.yaml — reject and surface the error (exit 2)."
+
+filesystem:
+  creates_paths:
+    - "docs/features/<FEATURE_ID>/state.yaml"   # created on first explicit command for the feature
+  reads_paths:
+    - "docs/features/<FEATURE_ID>/spec.md"
+    - "docs/features/<FEATURE_ID>/contract.yaml"
+    - "docs/features/<FEATURE_ID>/patches/"
+    - "docs/features/<FEATURE_ID>/state.yaml"
+  modifies_paths:
+    - path: "docs/features/<FEATURE_ID>/state.yaml"
+      reason: "Append-only lifecycle event log; explicit commands append one new event and never modify or delete existing events."
+    - path: "docs/templates/feature.contract.critical.yaml"
+      reason: "One-time removal of the reviews.status block, replaced with a comment pointing to state.yaml as authoritative (AC-22); no other template change is permitted."
+  copies_templates: []
+  must_not_modify:
+    - "docs/features/<FEATURE_ID>/spec.md"
+    - "docs/features/<FEATURE_ID>/contract.yaml"
+    - "docs/features/<FEATURE_ID>/patches/"
+    - "docs/constitution.md"
+    - "docs/adrs/"
+    - "docs/templates/feature.spec.md"
+    - "docs/templates/feature.contract.minimal.yaml"
+    - "Any other feature's directory or state.yaml than the FEATURE_ID being operated on."
+
+integrations:
+  tools:
+    - name: "git"
+      purpose: "Repository readiness via ensure_repo_ready() and actor resolution from git config (user.name, then user.email)."
+
+git_safety:
+  require_clean_tree: false
+  allow_untracked: true
+  rationale: >
+    status is strictly read-only. The mutating commands only append to the
+    feature's own append-only state.yaml sidecar and must be usable
+    mid-workflow (for example, `block` is run precisely when work is in
+    progress). Requiring a clean tree would make block/defer/review
+    unusable in normal flow. Safety is preserved because writes are confined
+    to the append-only state.yaml, are fully reversible via git, and never
+    touch canonical artifacts, other features, or other templates.
+
+verification:
+  strategy: ["unit", "integration"]
+  test_cases:
+    - id: "TC-001"
+      requirement: "LLR-001"
+      type: "integration"
+      description: "status on a feature with a recorded overlay prints displayed=overlay, base state, source=recorded, last event timestamp/actor, and reason; exit 0."
+    - id: "TC-002"
+      requirement: "LLR-002"
+      type: "integration"
+      description: "status --all lists every feature under docs/features/ with its displayed state and source; exit 0."
+    - id: "TC-003"
+      requirement: "LLR-003"
+      type: "integration"
+      description: "status leaves state.yaml (and all files) byte-for-byte unchanged, including for features with no state.yaml; no file is created."
+    - id: "TC-004"
+      requirement: "LLR-004"
+      type: "unit"
+      description: "Base state is max(last recorded non-overlay event, inferred): a recorded review with only a contract artifact still yields base=review."
+    - id: "TC-005"
+      requirement: "LLR-005"
+      type: "unit"
+      description: "With an unresolved blocked event over an inferred patch, displayed=blocked and base=patch computed independently."
+    - id: "TC-006"
+      requirement: "LLR-006"
+      type: "unit"
+      description: "Inference returns draft (spec.md only), contract (non-empty contract.yaml), and patch (>=1 file under patches/) using presence only, with no content validation."
+    - id: "TC-007"
+      requirement: "LLR-007"
+      type: "unit"
+      description: "Inference never returns review, done, blocked, deferred, or implement."
+    - id: "TC-008"
+      requirement: "LLR-008"
+      type: "integration"
+      description: "Replacing contract.yaml (F-009 handoff simulation) makes the next status report contract state with no event written to state.yaml."
+    - id: "TC-009"
+      requirement: "LLR-009"
+      type: "integration"
+      description: "review succeeds from base=patch with a patch artifact and no overlay, appending a review event and advancing to review."
+    - id: "TC-010"
+      requirement: "LLR-009"
+      type: "integration"
+      description: "review rejects (exit 1) when base is not patch, when no patch artifact exists, or when an overlay is unresolved, writing nothing."
+    - id: "TC-011"
+      requirement: "LLR-010"
+      type: "integration"
+      description: "done succeeds only when base=review, a review event exists, a patch artifact exists, and no overlay; otherwise rejects (exit 1) writing nothing."
+    - id: "TC-012"
+      requirement: "LLR-011"
+      type: "integration"
+      description: "block --reason appends a blocked event with reason and previous_status; block without --reason, when done, or when an overlay is active rejects (exit 1)."
+    - id: "TC-013"
+      requirement: "LLR-012"
+      type: "integration"
+      description: "defer --reason appends a deferred event with reason and previous_status; defer without --reason, when done, or when an overlay is active rejects (exit 1)."
+    - id: "TC-014"
+      requirement: "LLR-013"
+      type: "integration"
+      description: "unblock on a blocked feature appends an event with via: unblock and returns to previous base state; unblock on a non-blocked feature rejects (exit 1)."
+    - id: "TC-015"
+      requirement: "LLR-014"
+      type: "integration"
+      description: "resume on a deferred feature appends an event with via: resume and returns to previous base state; resume on a non-deferred feature rejects (exit 1)."
+    - id: "TC-016"
+      requirement: "LLR-015"
+      type: "integration"
+      description: "Appending a new event preserves all prior events unchanged in order; no existing event is modified or deleted."
+    - id: "TC-017"
+      requirement: "LLR-016"
+      type: "integration"
+      description: "After running status and inferred transitions, state.yaml contains only explicit command events and no inferred entries."
+    - id: "TC-018"
+      requirement: "LLR-018"
+      type: "integration"
+      description: "The first explicit command on a feature with no state.yaml creates the file containing exactly that one event."
+    - id: "TC-019"
+      requirement: "LLR-020"
+      type: "unit"
+      description: "Actor resolves git user.name, then user.email, then system username, then \"unknown\", in priority order."
+    - id: "TC-020"
+      requirement: "LLR-023"
+      type: "integration"
+      description: "status on a feature with no state.yaml (pre-F-010) infers state from artifacts without error and creates no file."
+  coverage_expectations:
+    code: "statement"
+    notes: "Hit key branches, especially all rejection/error paths and the append-only write path."
+
+reviews:
+  required: true
+  checklist:
+    - "Spec and contract agree on behavior, commands, states, and invariants."
+    - "Threat and impact assessment is accurate."
+    - "Append-only, inferred-never-persisted, and status-read-only invariants are enforced in code and covered by tests."
+    - "No new crate dependencies (serde_yaml and chrono only)."
+    - "Lifecycle state is advanced only via the explicit commands specified here."
+    - "Commands do not modify canonical artifacts (spec, contract, patches), the constitution, ADRs, or any template other than the permitted reviews.status removal."
+    - "Every modifies_paths entry has a justified reason."
+  # Review records are stored in state.yaml, not in this contract.
+  # See F-010. state.yaml is authoritative for all review records.
+
+  status:
+    reviewed_by: "three-seat"
+    reviewed_at: "07-08-2026"
+
+ai_instructions:
+  - "Treat this contract as the source of truth."
+  - "Prioritize correctness and safety over cleverness."
+  - "Do not weaken invariants or lower safety properties, especially append-only, inferred-never-persisted, and status-read-only."
+  - "Do not add dependencies; use only the already-present serde_yaml and chrono."
+  - "Do not advance lifecycle state except via the explicit commands specified in this contract."
+  - "Do not modify specs, the constitution, ADRs, or templates, except the single permitted removal of reviews.status from docs/templates/feature.contract.critical.yaml (AC-22)."
+  - "Never modify or delete existing events in state.yaml; correct mistakes only by appending new events."
+  - "Treat actor identity as informational only, never as authentication or independent verification."
+  - "Every modifies_paths entry must include a justified reason."
+  - "If anything is ambiguous, implement the safest conservative behavior and reject rather than write."
