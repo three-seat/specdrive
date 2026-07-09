@@ -514,6 +514,10 @@ reviews:
   # Review records are stored in state.yaml, not in this contract.
   # See F-010. state.yaml is authoritative for all review records.
 
+  status:
+    reviewed_by: "three-seat"
+    reviewed_at: "07-08-2026"
+
 ai_instructions:
   - "Treat this contract as the source of truth."
   - "Prioritize correctness and safety over cleverness."
