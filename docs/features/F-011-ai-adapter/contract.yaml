@@ -1,0 +1,122 @@
+schema_version: 1
+
+metadata:
+  id: "F-011-ai-adapter"
+  title: "011 Ai Adapter"
+  status: "draft"
+  critical: true
+
+summary: |
+  TODO: 2-4 lines describing the feature and why it is critical.
+
+scope:
+  product: "specdrive"
+  service: "specdrive-cli"
+  repo: "specdrive"
+  area: "TODO: choose one of: cli | spec | contract | git | ai | docs"
+
+requirements:
+  high_level: []
+  low_level: []
+
+assumptions:
+  - id: "A-001"
+    text: "The command is run from the repository root and .git/ is present."
+  - id: "A-002"
+    text: >
+      Repo layout follows the post-ADR-0002 / F-007 conventions: feature
+      artifacts under docs/features/<FEATURE_ID>/, templates under
+      docs/templates/. Spec Kit / .specify/ is not required.
+
+preconditions:
+  - id: "P-001"
+    text: "Command is run from the repository root inside a git repository."
+
+impact:
+  security:
+    confidentiality: "low"   # low | medium | high
+    integrity: "low"         # low | medium | high
+    availability: "low"      # low | medium | high
+    rationale: "TODO: explain the impact if this feature is wrong or abused."
+  privacy:
+    pii_involved: false
+    rationale: ""
+
+architecture:
+  related_docs:
+    - "docs/system-overview.md"
+    - "docs/constitution.md"
+    - "docs/adrs/ADR-0003-artifact-ownership-and-traceability.md"
+  constraints:
+    - "No secrets written to disk."
+    - "No network calls unless explicitly required and approved."
+    - "All SpecDrive state remains repository-local and reconstructable."
+    - "AI produces artifacts only; this feature must not advance lifecycle state unless explicitly specified."
+
+cli:
+  command: ""
+  args: []
+  flags: []
+  description: ""
+  exit_codes:
+    - code: 0
+      meaning: "Success."
+    - code: 1
+      meaning: "Usage or precondition failure."
+    - code: 2
+      meaning: "Underlying tool or IO failure."
+
+behavior:
+  steps: []
+
+logic:
+  invariants: []
+  error_conditions: []
+
+filesystem:
+  creates_paths: []      # new files this command creates
+  reads_paths: []        # existing files this command reads but does not change
+  modifies_paths: []     # existing files this command edits (path + reason)
+  copies_templates: []
+  must_not_modify: []    # files this command must never touch
+
+integrations:
+  tools:
+    - name: "git"
+      purpose: "Working tree checks and repository readiness via ensure_repo_ready()."
+
+git_safety:
+  require_clean_tree: true
+  allow_untracked: true
+  rationale: "TODO: justify clean tree requirement for this command. Read-only commands may set this to false."
+
+verification:
+  strategy: ["unit", "integration"]
+  test_cases: []
+  coverage_expectations:
+    code: "statement"
+    notes: "Hit key branches, especially failure paths."
+
+reviews:
+  required: true
+  checklist:
+    - "Spec and contract agree on behavior, commands, and invariants."
+    - "Threat and impact assessment is accurate."
+    - "Invariants are enforced in code and covered by tests."
+    - "No new crate dependencies unless explicitly approved."
+    - "Lifecycle state is not advanced unless explicitly specified."
+    - "Feature does not modify canonical artifacts outside its stated scope."
+    - "Every modifies_paths entry has a justified reason."
+  # Review records are stored in state.yaml, not in this contract.
+  # See F-010. state.yaml is authoritative for all review records.
+
+ai_instructions:
+  - "Treat this contract as the source of truth."
+  - "Prioritize correctness and safety over cleverness."
+  - "Do not weaken invariants or lower safety properties."
+  - "Do not add dependencies unless explicitly allowed in this contract."
+  - "Do not advance lifecycle state unless explicitly specified in this contract."
+  - "Do not modify specs, constitution, ADRs, or templates."
+  - "Every modifies_paths entry must include a justified reason."
+  - "If anything is ambiguous, implement the safest conservative behavior and reject rather than write."
+  - "All implementation changes SHALL be traceable to one or more requirements in the active feature contract. The agent SHALL NOT introduce behavior that cannot be justified by a requirement."
