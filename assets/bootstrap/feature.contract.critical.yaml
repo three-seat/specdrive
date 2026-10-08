@@ -119,3 +119,4 @@ ai_instructions:
   - "Do not modify specs, constitution, ADRs, or templates."
   - "Every modifies_paths entry must include a justified reason."
   - "If anything is ambiguous, implement the safest conservative behavior and reject rather than write."
+  - "All implementation changes SHALL be traceable to one or more requirements in the active feature contract. The agent SHALL NOT introduce behavior that cannot be justified by a requirement."

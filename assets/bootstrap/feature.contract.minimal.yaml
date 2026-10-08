@@ -81,3 +81,4 @@ ai_instructions:
   - "Avoid adding dependencies unless the contract explicitly allows it."
   - "Every modifies_paths entry must include a justified reason."
   - "If anything is ambiguous, implement the safest conservative behavior."
+  - "All implementation changes SHALL be traceable to one or more requirements in the active feature contract. The agent SHALL NOT introduce behavior that cannot be justified by a requirement."
